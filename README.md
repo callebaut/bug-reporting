@@ -61,12 +61,13 @@ page does this for you).
 3. **Select an element** → hover and click the element to screenshot.
 4. The screenshot appears as a **thumbnail** in the panel. **Click it** to open the
    annotation pop-up, draw with **pen / rectangle / arrow / text**, choose a
-   **colour** and a **size (S / M / L)** — size sets the stroke width for shapes
-   and the font size for text — then hit **Done**. For text, pick the **T** tool,
-   tap where you want the label, and type in the live editor box (Enter commits,
-   Shift+Enter for a new line, Esc cancels); text uses the selected colour with a
-   crisp outline. Use the **✋ Move** tool to grab and drag any placed element
-   (pen, box, arrow, or text) to reposition it.
+   **colour**, then hit **Done**. Pen/rectangle/arrow have an **S / M / L** width;
+   text has its own **font-size picker** and **Bold** toggle. For text, pick the
+   **T** tool, tap where you want the label, and type in the live editor box
+   (Enter commits, Shift+Enter for a new line, Esc cancels); text uses the selected
+   colour with a crisp outline. **Click an existing text label with the T tool to
+   edit it** (emptying it deletes it). Use the **✋ Move** tool to grab and drag any
+   placed element (pen, box, arrow, or text) to reposition it.
 5. Fill in **Title**, **Description**, **Expected results**, **Severity** and
    **Environment**.
 6. **Copy bug report to clipboard** → paste into your ticket.

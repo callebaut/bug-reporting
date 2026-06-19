@@ -226,9 +226,11 @@
     var current = null;          // in-progress shape
     var drawTool = 'pen';
     var drawColor = '#ff3b30';
-    var sizeLevel = 'm';         // 's' | 'm' | 'l' — applies to current tool
-    var STROKE = { s: 3, m: 6, l: 11 };   // pen / rect / arrow stroke width (canvas px)
-    var FONT = { s: 20, m: 32, l: 48 };   // text font size (canvas px)
+    var sizeLevel = 'm';         // 's' | 'm' | 'l' — pen / rect / arrow only
+    var STROKE = { s: 3, m: 6, l: 11 };   // stroke width (canvas px)
+    var textSize = 32;           // text font size (canvas px, base before hi-dpi)
+    var textBold = true;
+    var FONT_SIZES = [14, 18, 24, 32, 40, 52, 64, 80];
     var highlightBox = null;     // element-picker highlight
     var formState = null;        // persisted field values across re-renders
     var thumbImg = null;         // <img> in the form showing the current composite
@@ -284,6 +286,9 @@
       '.szbtn[data-size="s"]{font-size:11px;}',
       '.szbtn[data-size="m"]{font-size:14px;}',
       '.szbtn[data-size="l"]{font-size:19px;}',
+      '.grp{display:inline-flex;align-items:center;gap:6px;}',
+      '.fsizesel{height:32px;border:1px solid #d0d7de;border-radius:7px;background:#f6f8fa;font-size:13px;padding:0 4px;cursor:pointer;color:#1c2128;}',
+      '.boldbtn{font-family:Georgia,"Times New Roman",serif;}',
       '.edfoot{display:flex;align-items:center;gap:10px;padding:12px 16px;border-top:1px solid #eaeef2;flex-wrap:wrap;}',
       '.edtoolbar{display:flex;flex-wrap:wrap;align-items:center;gap:6px;flex:1;}',
       '.edtoolbar .sep{width:1px;height:24px;background:#eaeef2;display:inline-block;}',
@@ -635,6 +640,7 @@
           drawTool = t[0];
           if (drawTool !== 'move') selectedShape = null;
           applyCursor();
+          updateGroups();
           redraw();
           modal.querySelectorAll('.tool[data-tool]').forEach(function (x) { x.classList.toggle('on', x.getAttribute('data-tool') === drawTool); });
         };
@@ -647,13 +653,15 @@
         s.onclick = function () {
           drawColor = c;
           modal.querySelectorAll('.swatch').forEach(function (x) { x.classList.toggle('on', x.title === c); });
+          syncTextEditorStyle(); // live-update an open text editor
         };
         return s;
       });
-      // size: small / medium / large (stroke width for shapes, font size for text)
+
+      // S/M/L stroke width — pen / rect / arrow only
       var sizes = [['s', 'S', 'Small'], ['m', 'M', 'Medium'], ['l', 'L', 'Large']];
       var sizeBtns = sizes.map(function (t) {
-        var b = el('button', { class: 'tool szbtn' + (t[0] === sizeLevel ? ' on' : ''), title: t[2] + ' size', 'data-size': t[0] });
+        var b = el('button', { class: 'tool szbtn' + (t[0] === sizeLevel ? ' on' : ''), title: t[2] + ' width', 'data-size': t[0] });
         b.textContent = t[1];
         b.onclick = function () {
           sizeLevel = t[0];
@@ -661,6 +669,26 @@
         };
         return b;
       });
+      var shapeGrp = el('span', { class: 'grp' }, sizeBtns);
+
+      // Text controls — font size + bold (shown only for the Text tool)
+      var fontSel = el('select', { class: 'fsizesel', title: 'Font size' });
+      FONT_SIZES.forEach(function (s) {
+        var o = el('option', { value: String(s), text: s + ' px' });
+        if (s === textSize) o.selected = true;
+        fontSel.appendChild(o);
+      });
+      fontSel.onchange = function () { textSize = parseInt(fontSel.value, 10) || 32; syncTextEditorStyle(); };
+      var boldBtn = el('button', { class: 'tool boldbtn' + (textBold ? ' on' : ''), title: 'Bold' });
+      boldBtn.style.fontWeight = '800'; boldBtn.textContent = 'B';
+      boldBtn.onclick = function () { textBold = !textBold; boldBtn.classList.toggle('on', textBold); syncTextEditorStyle(); };
+      var textGrp = el('span', { class: 'grp' }, [fontSel, boldBtn]);
+
+      function updateGroups() {
+        var isText = drawTool === 'text';
+        shapeGrp.style.display = isText ? 'none' : 'inline-flex';
+        textGrp.style.display = isText ? 'inline-flex' : 'none';
+      }
 
       var undo = el('button', { class: 'tool', title: 'Undo' }); undo.textContent = '⎌';
       undo.onclick = function () { shapes.pop(); selectedShape = null; redraw(); };
@@ -673,8 +701,7 @@
         toolBtns
           .concat([el('span', { class: 'sep' })])
           .concat(swatchBtns)
-          .concat([el('span', { class: 'sep' })])
-          .concat(sizeBtns)
+          .concat([el('span', { class: 'sep' }), shapeGrp, textGrp])
           .concat([el('span', { class: 'sep' }), undo, clr]));
 
       var close = el('button', { class: 'edx', title: 'Done' }); close.innerHTML = '&times;';
@@ -691,6 +718,7 @@
       shadow.appendChild(modal);
       selectedShape = null;
       applyCursor();
+      updateGroups();
       redraw();
     }
 
@@ -723,7 +751,11 @@
           redraw();
           return;
         }
-        if (drawTool === 'text') { startTextInput(canvas, p); return; }
+        if (drawTool === 'text') {
+          var hit = pickTextShape(p);     // click existing text to edit it
+          startTextInput(canvas, p, hit || null);
+          return;
+        }
         current = { tool: drawTool, color: drawColor, size: STROKE[sizeLevel] * (canvas.width > 1000 ? 2 : 1) };
         if (drawTool === 'pen') current.points = [p];
         else { current.x0 = p.x; current.y0 = p.y; current.x1 = p.x; current.y1 = p.y; }
@@ -802,7 +834,7 @@
     }
 
     function textFont(s) {
-      return '700 ' + s.size + 'px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif';
+      return (s.weight || 700) + ' ' + s.size + 'px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif';
     }
 
     function isLight(hex) {
@@ -875,27 +907,69 @@
       else { s.x0 += dx; s.y0 += dy; s.x1 += dx; s.y1 += dy; }
     }
 
-    // Inline text entry over the editor canvas; commits a 'text' annotation.
-    function startTextInput(canvas, p) {
+    function snapFontSize(px) {
+      return FONT_SIZES.reduce(function (best, s) {
+        return Math.abs(s - px) < Math.abs(best - px) ? s : best;
+      }, FONT_SIZES[0]);
+    }
+
+    // Reflect the current text style on the open inline editor (live WYSIWYG).
+    function syncTextEditorStyle() {
+      var ta = shadow.querySelector('.textin');
+      if (!ta || !annoCanvas) return;
+      var hi = annoCanvas.width > 1000 ? 2 : 1;
+      var scale = annoCanvas.clientWidth / annoCanvas.width || 1;
+      ta.style.color = drawColor;
+      ta.style.fontWeight = textBold ? 700 : 400;
+      ta.style.fontSize = Math.max(12, textSize * hi * scale) + 'px';
+    }
+
+    // Reflect the current text style on the toolbar controls.
+    function syncTextControls() {
+      var fs = shadow.querySelector('.fsizesel'); if (fs) fs.value = String(textSize);
+      var bb = shadow.querySelector('.boldbtn'); if (bb) bb.classList.toggle('on', textBold);
+      shadow.querySelectorAll('.swatch').forEach(function (x) { x.classList.toggle('on', x.title === drawColor); });
+    }
+
+    // Inline text entry over the editor canvas. `existing` (optional) edits a
+    // placed text annotation instead of creating a new one.
+    function startTextInput(canvas, p, existing) {
       var stack = shadow.querySelector('.stack');
       if (!stack || shadow.querySelector('.textin')) return;
+      var hi = canvas.width > 1000 ? 2 : 1;
       var scale = canvas.clientWidth / canvas.width || 1;
-      var fontPx = FONT[sizeLevel] * (canvas.width > 1000 ? 2 : 1); // canvas-space font size
+      // when editing, adopt the text's own style into the toolbar controls
+      if (existing) {
+        textSize = snapFontSize(existing.size / hi);
+        textBold = (existing.weight || 700) >= 600;
+        drawColor = existing.color;
+        syncTextControls();
+      }
+      var x = existing ? existing.x : p.x;
+      var y = existing ? existing.y : p.y;
       var ta = el('textarea', { class: 'textin', rows: '1' });
-      ta.style.left = (p.x * scale) + 'px';
-      ta.style.top = (p.y * scale) + 'px';
-      ta.style.color = drawColor;
-      ta.style.fontSize = Math.max(12, fontPx * scale) + 'px';
+      ta.value = existing ? existing.text : '';
+      ta.style.left = (x * scale) + 'px';
+      ta.style.top = (y * scale) + 'px';
       stack.appendChild(ta);
+      syncTextEditorStyle();
       var grow = function () { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; };
       ta.addEventListener('input', grow);
-      setTimeout(function () { ta.focus(); grow(); }, 0);
+      setTimeout(function () { ta.focus(); ta.select(); grow(); }, 0);
       var done = false;
       function commit() {
         if (done) return; done = true;
         var v = ta.value.replace(/\s+$/, '');
         if (ta.parentNode) ta.parentNode.removeChild(ta);
-        if (v) { shapes.push({ tool: 'text', x: p.x, y: p.y, text: v, color: drawColor, size: fontPx }); redraw(); }
+        var weight = textBold ? 700 : 400;
+        var size = textSize * hi;
+        if (existing) {
+          if (v) { existing.text = v; existing.color = drawColor; existing.size = size; existing.weight = weight; }
+          else { var idx = shapes.indexOf(existing); if (idx >= 0) shapes.splice(idx, 1); } // emptied → delete
+        } else if (v) {
+          shapes.push({ tool: 'text', x: x, y: y, text: v, color: drawColor, size: size, weight: weight });
+        }
+        redraw();
       }
       function cancel() { done = true; if (ta.parentNode) ta.parentNode.removeChild(ta); }
       ta.addEventListener('keydown', function (e) {
@@ -904,6 +978,14 @@
         else if (e.key === 'Escape') { e.preventDefault(); cancel(); }
       });
       ta.addEventListener('blur', commit);
+    }
+
+    function pickTextShape(p) {
+      var grab = grabPx();
+      for (var i = shapes.length - 1; i >= 0; i--) {
+        if (shapes[i].tool === 'text' && hitShape(shapes[i], p, grab)) return shapes[i];
+      }
+      return null;
     }
 
     function redraw() {
