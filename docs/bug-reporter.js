@@ -226,7 +226,9 @@
     var current = null;          // in-progress shape
     var drawTool = 'pen';
     var drawColor = '#ff3b30';
-    var drawSize = 4;
+    var sizeLevel = 'm';         // 's' | 'm' | 'l' — applies to current tool
+    var STROKE = { s: 3, m: 6, l: 11 };   // pen / rect / arrow stroke width (canvas px)
+    var FONT = { s: 20, m: 32, l: 48 };   // text font size (canvas px)
     var highlightBox = null;     // element-picker highlight
     var formState = null;        // persisted field values across re-renders
     var thumbImg = null;         // <img> in the form showing the current composite
@@ -277,7 +279,11 @@
       '.stack canvas{position:absolute;left:0;top:0;}',
       '.stack canvas.base{position:static;box-shadow:0 1px 6px rgba(0,0,0,.2);}',
       '.stack canvas:not(.base){cursor:crosshair;touch-action:none;}',
-      '.textin{position:absolute;z-index:5;background:rgba(255,255,255,.9);border:1px dashed #1f6feb;border-radius:4px;padding:1px 3px;margin:0;min-width:80px;font-weight:700;line-height:1.25;resize:none;overflow:hidden;outline:none;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;}',
+      '.textin{position:absolute;z-index:5;background:rgba(255,255,255,.96);border:1px solid #1f6feb;border-radius:4px;box-shadow:0 2px 10px rgba(0,0,0,.25);padding:2px 4px;margin:0;min-width:90px;font-weight:700;line-height:1.25;white-space:pre;resize:none;overflow:hidden;outline:none;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;}',
+      '.szbtn{font-weight:700;line-height:1;}',
+      '.szbtn[data-size="s"]{font-size:11px;}',
+      '.szbtn[data-size="m"]{font-size:14px;}',
+      '.szbtn[data-size="l"]{font-size:19px;}',
       '.edfoot{display:flex;align-items:center;gap:10px;padding:12px 16px;border-top:1px solid #eaeef2;flex-wrap:wrap;}',
       '.edtoolbar{display:flex;flex-wrap:wrap;align-items:center;gap:6px;flex:1;}',
       '.edtoolbar .sep{width:1px;height:24px;background:#eaeef2;display:inline-block;}',
@@ -644,6 +650,18 @@
         };
         return s;
       });
+      // size: small / medium / large (stroke width for shapes, font size for text)
+      var sizes = [['s', 'S', 'Small'], ['m', 'M', 'Medium'], ['l', 'L', 'Large']];
+      var sizeBtns = sizes.map(function (t) {
+        var b = el('button', { class: 'tool szbtn' + (t[0] === sizeLevel ? ' on' : ''), title: t[2] + ' size', 'data-size': t[0] });
+        b.textContent = t[1];
+        b.onclick = function () {
+          sizeLevel = t[0];
+          modal.querySelectorAll('.tool[data-size]').forEach(function (x) { x.classList.toggle('on', x.getAttribute('data-size') === sizeLevel); });
+        };
+        return b;
+      });
+
       var undo = el('button', { class: 'tool', title: 'Undo' }); undo.textContent = '⎌';
       undo.onclick = function () { shapes.pop(); selectedShape = null; redraw(); };
       var clr = el('button', { class: 'btn sm', title: 'Clear annotations' }); clr.textContent = 'Clear';
@@ -651,9 +669,13 @@
       var done = el('button', { class: 'btn primary editdone' }); done.textContent = '✓ Done';
       done.onclick = closeEditor;
 
-      var toolbar = el('div', { class: 'edtoolbar' }, toolBtns.concat([
-        el('span', { class: 'sep' })
-      ]).concat(swatchBtns).concat([undo, clr]));
+      var toolbar = el('div', { class: 'edtoolbar' },
+        toolBtns
+          .concat([el('span', { class: 'sep' })])
+          .concat(swatchBtns)
+          .concat([el('span', { class: 'sep' })])
+          .concat(sizeBtns)
+          .concat([el('span', { class: 'sep' }), undo, clr]));
 
       var close = el('button', { class: 'edx', title: 'Done' }); close.innerHTML = '&times;';
       close.onclick = closeEditor;
@@ -702,7 +724,7 @@
           return;
         }
         if (drawTool === 'text') { startTextInput(canvas, p); return; }
-        current = { tool: drawTool, color: drawColor, size: drawSize * (canvas.width > 1000 ? 2 : 1) };
+        current = { tool: drawTool, color: drawColor, size: STROKE[sizeLevel] * (canvas.width > 1000 ? 2 : 1) };
         if (drawTool === 'pen') current.points = [p];
         else { current.x0 = p.x; current.y0 = p.y; current.x1 = p.x; current.y1 = p.y; }
         redraw();
@@ -767,17 +789,27 @@
       } else if (s.tool === 'text') {
         ctx.font = textFont(s);
         ctx.textBaseline = 'top';
-        ctx.save();
-        ctx.shadowColor = 'rgba(0,0,0,.55)';
-        ctx.shadowBlur = Math.max(2, s.size / 8);
         var lh = s.size * 1.25;
-        s.text.split('\n').forEach(function (line, i) { ctx.fillText(line, s.x, s.y + i * lh); });
-        ctx.restore();
+        var lines = s.text.split('\n');
+        // crisp thin outline (no blurry shadow) for legibility on any background
+        ctx.lineJoin = 'round';
+        ctx.lineWidth = Math.max(2, s.size / 9);
+        ctx.strokeStyle = isLight(s.color) ? 'rgba(0,0,0,.6)' : 'rgba(255,255,255,.85)';
+        lines.forEach(function (line, i) { ctx.strokeText(line, s.x, s.y + i * lh); });
+        ctx.fillStyle = s.color;
+        lines.forEach(function (line, i) { ctx.fillText(line, s.x, s.y + i * lh); });
       }
     }
 
     function textFont(s) {
       return '700 ' + s.size + 'px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif';
+    }
+
+    function isLight(hex) {
+      var c = String(hex).replace('#', '');
+      if (c.length === 3) c = c[0] + c[0] + c[1] + c[1] + c[2] + c[2];
+      var r = parseInt(c.substr(0, 2), 16), g = parseInt(c.substr(2, 2), 16), b = parseInt(c.substr(4, 2), 16);
+      return (0.299 * r + 0.587 * g + 0.114 * b) > 160;
     }
 
     // -- Move / drag support ------------------------------------------------
@@ -848,14 +880,16 @@
       var stack = shadow.querySelector('.stack');
       if (!stack || shadow.querySelector('.textin')) return;
       var scale = canvas.clientWidth / canvas.width || 1;
-      var fontPx = drawSize * 6 * (canvas.width > 1000 ? 2 : 1); // canvas-space font size
+      var fontPx = FONT[sizeLevel] * (canvas.width > 1000 ? 2 : 1); // canvas-space font size
       var ta = el('textarea', { class: 'textin', rows: '1' });
       ta.style.left = (p.x * scale) + 'px';
       ta.style.top = (p.y * scale) + 'px';
       ta.style.color = drawColor;
       ta.style.fontSize = Math.max(12, fontPx * scale) + 'px';
       stack.appendChild(ta);
-      setTimeout(function () { ta.focus(); }, 0);
+      var grow = function () { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; };
+      ta.addEventListener('input', grow);
+      setTimeout(function () { ta.focus(); grow(); }, 0);
       var done = false;
       function commit() {
         if (done) return; done = true;
