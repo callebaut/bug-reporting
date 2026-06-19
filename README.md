@@ -60,8 +60,9 @@ page does this for you).
 2. Click the bookmark → widget opens bottom-right.
 3. **Select an element** → hover and click the element to screenshot.
 4. The screenshot appears as a **thumbnail** in the panel. **Click it** to open the
-   annotation pop-up, draw with **pen / rectangle / arrow** (colours, undo, clear),
-   then hit **Done** to return to the form.
+   annotation pop-up, draw with **pen / rectangle / arrow / text** (colours, undo,
+   clear), then hit **Done** to return to the form. For text, pick the **T** tool,
+   tap where you want the label, and type (Enter to commit, Esc to cancel).
 5. Fill in **Title**, **Description**, **Expected results**, **Severity** and
    **Environment**.
 6. **Copy bug report to clipboard** → paste into your ticket.

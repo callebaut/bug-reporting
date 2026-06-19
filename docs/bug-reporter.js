@@ -274,6 +274,7 @@
       '.stack canvas{position:absolute;left:0;top:0;}',
       '.stack canvas.base{position:static;box-shadow:0 1px 6px rgba(0,0,0,.2);}',
       '.stack canvas:not(.base){cursor:crosshair;touch-action:none;}',
+      '.textin{position:absolute;z-index:5;background:rgba(255,255,255,.9);border:1px dashed #1f6feb;border-radius:4px;padding:1px 3px;margin:0;min-width:80px;font-weight:700;line-height:1.25;resize:none;overflow:hidden;outline:none;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;}',
       '.edfoot{display:flex;align-items:center;gap:10px;padding:12px 16px;border-top:1px solid #eaeef2;flex-wrap:wrap;}',
       '.edtoolbar{display:flex;flex-wrap:wrap;align-items:center;gap:6px;flex:1;}',
       '.edtoolbar .sep{width:1px;height:24px;background:#eaeef2;display:inline-block;}',
@@ -613,7 +614,7 @@
       var stage = el('div', { class: 'stage' }, [stack]);
 
       // tools
-      var tools = [['pen', '✏️', 'Pen'], ['rect', '▭', 'Rectangle'], ['arrow', '↗', 'Arrow']];
+      var tools = [['pen', '✏️', 'Pen'], ['rect', '▭', 'Rectangle'], ['arrow', '↗', 'Arrow'], ['text', 'T', 'Text']];
       var toolBtns = tools.map(function (t) {
         var b = el('button', { class: 'tool' + (t[0] === drawTool ? ' on' : ''), title: t[2], 'data-tool': t[0] });
         b.textContent = t[1];
@@ -679,6 +680,7 @@
       function down(e) {
         e.preventDefault();
         var p = canvasPoint(canvas, e);
+        if (drawTool === 'text') { startTextInput(canvas, p); return; }
         current = { tool: drawTool, color: drawColor, size: drawSize * (canvas.width > 1000 ? 2 : 1) };
         if (drawTool === 'pen') current.points = [p];
         else { current.x0 = p.x; current.y0 = p.y; current.x1 = p.x; current.y1 = p.y; }
@@ -730,7 +732,45 @@
         ctx.lineTo(s.x1 - head * Math.cos(ang + Math.PI / 6), s.y1 - head * Math.sin(ang + Math.PI / 6));
         ctx.closePath();
         ctx.fill();
+      } else if (s.tool === 'text') {
+        ctx.font = '700 ' + s.size + 'px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif';
+        ctx.textBaseline = 'top';
+        ctx.save();
+        ctx.shadowColor = 'rgba(0,0,0,.55)';
+        ctx.shadowBlur = Math.max(2, s.size / 8);
+        var lh = s.size * 1.25;
+        s.text.split('\n').forEach(function (line, i) { ctx.fillText(line, s.x, s.y + i * lh); });
+        ctx.restore();
       }
+    }
+
+    // Inline text entry over the editor canvas; commits a 'text' annotation.
+    function startTextInput(canvas, p) {
+      var stack = shadow.querySelector('.stack');
+      if (!stack || shadow.querySelector('.textin')) return;
+      var scale = canvas.clientWidth / canvas.width || 1;
+      var fontPx = drawSize * 6 * (canvas.width > 1000 ? 2 : 1); // canvas-space font size
+      var ta = el('textarea', { class: 'textin', rows: '1' });
+      ta.style.left = (p.x * scale) + 'px';
+      ta.style.top = (p.y * scale) + 'px';
+      ta.style.color = drawColor;
+      ta.style.fontSize = Math.max(12, fontPx * scale) + 'px';
+      stack.appendChild(ta);
+      setTimeout(function () { ta.focus(); }, 0);
+      var done = false;
+      function commit() {
+        if (done) return; done = true;
+        var v = ta.value.replace(/\s+$/, '');
+        if (ta.parentNode) ta.parentNode.removeChild(ta);
+        if (v) { shapes.push({ tool: 'text', x: p.x, y: p.y, text: v, color: drawColor, size: fontPx }); redraw(); }
+      }
+      function cancel() { done = true; if (ta.parentNode) ta.parentNode.removeChild(ta); }
+      ta.addEventListener('keydown', function (e) {
+        e.stopPropagation();
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); commit(); }
+        else if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+      });
+      ta.addEventListener('blur', commit);
     }
 
     function redraw() {
