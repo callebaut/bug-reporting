@@ -166,6 +166,53 @@
     ).then(function (d) { uaData = d; }).catch(function () { });
   }
 
+  // ---------------------------------------------------------------------------
+  // Configuration. Defaults can be overridden per user by setting
+  // window.__bugReporterConfig before this script loads (the bookmarklet does
+  // this — see the landing page generator). Read live so re-clicking the
+  // bookmarklet with a new config takes effect.
+  //
+  //   window.__bugReporterConfig = {
+  //     severities: ['Blocker','Critical','Major','Minor','Trivial'],
+  //     defaultSeverity: 'Major',
+  //     environments: [                      // ordered; first regex match wins
+  //       { match: 'localhost|127\\.0\\.0\\.1|\\.local', label: 'Local' },
+  //       { match: 'staging|uat|stage|stg|acc|test', label: 'Staging' },
+  //       { match: '.*', label: 'Production' }
+  //     ]
+  //   };
+  // ---------------------------------------------------------------------------
+  var DEFAULT_CONFIG = {
+    severities: ['Blocker', 'Critical', 'Major', 'Minor', 'Trivial'],
+    defaultSeverity: 'Major',
+    environments: [
+      { match: 'localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0|\\.local(?::|/|$)', label: 'Local' },
+      { match: '\\bdev\\b|//dev\\.|\\.dev\\.|-dev\\.|develop', label: 'Development' },
+      { match: 'staging|stage|stg|uat|\\bqa\\b|\\bacc\\b|accept|\\btest\\b|sandbox|preprod|preview', label: 'Staging' },
+      { match: '.*', label: 'Production' }
+    ]
+  };
+
+  function getConfig() {
+    var u = window.__bugReporterConfig || {};
+    return {
+      severities: (u.severities && u.severities.length) ? u.severities : DEFAULT_CONFIG.severities,
+      defaultSeverity: u.defaultSeverity || DEFAULT_CONFIG.defaultSeverity,
+      environments: (u.environments && u.environments.length) ? u.environments : DEFAULT_CONFIG.environments
+    };
+  }
+
+  function detectEnvironment(cfg) {
+    var url = location.href;
+    for (var i = 0; i < cfg.environments.length; i++) {
+      var rule = cfg.environments[i];
+      try {
+        if (new RegExp(rule.match, 'i').test(url)) return rule.label;
+      } catch (e) { /* skip invalid pattern */ }
+    }
+    return 'Unknown';
+  }
+
   // ===========================================================================
   // Widget
   // ===========================================================================
@@ -203,7 +250,8 @@
       '.row{display:flex;gap:8px;margin-top:8px;}',
       '.row.wrap{flex-wrap:wrap;}',
       'label.fld{display:block;margin-top:12px;font-weight:600;font-size:12px;color:#57606a;}',
-      'input.txt,textarea.txt{width:100%;margin-top:4px;padding:8px;border:1px solid #d0d7de;border-radius:8px;font-size:13px;color:#1c2128;}',
+      'input.txt,textarea.txt,select.txt{width:100%;margin-top:4px;padding:8px;border:1px solid #d0d7de;border-radius:8px;font-size:13px;color:#1c2128;background:#fff;}',
+      'select.txt{height:36px;cursor:pointer;}',
       'textarea.txt{resize:vertical;min-height:60px;}',
       '.hint{color:#57606a;font-size:12px;margin:8px 0 0;line-height:1.4;}',
       '.preview{position:relative;margin-top:10px;border:1px solid #d0d7de;border-radius:8px;overflow:auto;max-height:240px;background:#f6f8fa;}',
@@ -463,6 +511,38 @@
       var titleLbl = el('label', { class: 'fld', text: 'Title' });
       var descLbl = el('label', { class: 'fld', text: 'Description' });
 
+      // severity + environment (config-driven; environment auto-detected from URL)
+      var cfg = getConfig();
+      var detectedEnv = detectEnvironment(cfg);
+
+      function buildSelect(values, selected) {
+        var sel = el('select', { class: 'txt' });
+        values.forEach(function (v) {
+          var o = el('option', { value: v, text: v });
+          if (v === selected) o.selected = true;
+          sel.appendChild(o);
+        });
+        return sel;
+      }
+      var sevSel = buildSelect(cfg.severities, cfg.defaultSeverity);
+      var envValues = cfg.environments.map(function (e) { return e.label; })
+        .filter(function (v, i, a) { return a.indexOf(v) === i; });
+      if (envValues.indexOf(detectedEnv) < 0) envValues.unshift(detectedEnv);
+      var envSel = buildSelect(envValues, detectedEnv);
+
+      var sevCol = el('div', {}, [el('label', { class: 'fld', text: 'Severity' }), sevSel]);
+      var envCol = el('div', {}, [el('label', { class: 'fld', html: 'Environment <span style="font-weight:400;color:#57606a">(from URL)</span>' }), envSel]);
+      sevCol.style.flex = '1'; envCol.style.flex = '1';
+      var metaRow = el('div', { class: 'row' }, [sevCol, envCol]);
+
+      function reportOpts(statusNode) {
+        return {
+          title: titleIn.value, description: descIn.value,
+          severity: sevSel.value, environment: envSel.value,
+          includeSensitive: sensChk.checked, status: statusNode
+        };
+      }
+
       // sensitive-data toggle
       var sensChk = el('input', { type: 'checkbox' });
       sensChk.checked = true;
@@ -473,9 +553,7 @@
       var status = el('div', { class: 'status' });
       var copyBtn = el('button', { class: 'btn primary' });
       copyBtn.innerHTML = '📋 Copy bug report to clipboard';
-      copyBtn.onclick = function () {
-        copyReport({ title: titleIn.value, description: descIn.value, includeSensitive: sensChk.checked, status: status });
-      };
+      copyBtn.onclick = function () { copyReport(reportOpts(status)); };
       var dlPng = el('button', { class: 'btn sm' }); dlPng.textContent = '⬇ PNG';
       dlPng.onclick = function () {
         var d = compositeDataUrl();
@@ -484,7 +562,7 @@
       };
       var dlMd = el('button', { class: 'btn sm' }); dlMd.textContent = '⬇ Markdown';
       dlMd.onclick = function () {
-        var ctx = collectContext({ title: titleIn.value, description: descIn.value, includeSensitive: sensChk.checked });
+        var ctx = collectContext(reportOpts());
         downloadText(buildMarkdown(ctx, false), 'bug-report.md');
       };
 
@@ -493,6 +571,7 @@
         toolbar,
         titleLbl, titleIn,
         descLbl, descIn,
+        metaRow,
         sensLbl,
         el('div', { class: 'divider' }),
         copyBtn,
@@ -650,6 +729,8 @@
       var ctx = {
         title: opts.title || '(no title)',
         description: opts.description || '',
+        severity: opts.severity || '',
+        environment: opts.environment || '',
         url: location.href,
         referrer: document.referrer || '(none)',
         timestamp: new Date().toISOString(),
@@ -704,11 +785,17 @@
       var L = [];
       L.push('# 🐞 ' + c.title);
       L.push('');
+      var badges = [];
+      if (c.severity) badges.push('**Severity:** ' + c.severity);
+      if (c.environment) badges.push('**Environment:** ' + c.environment);
+      if (badges.length) { L.push(badges.join(' · ')); L.push(''); }
       if (c.description) { L.push('## Description'); L.push(c.description); L.push(''); }
       if (imageNote) { L.push('## Screenshot'); L.push('_Annotated screenshot is attached / embedded in this paste._'); L.push(''); }
       L.push('## Environment');
       L.push('| Field | Value |');
       L.push('| --- | --- |');
+      if (c.environment) L.push('| Environment | ' + c.environment + ' |');
+      if (c.severity) L.push('| Severity | ' + c.severity + ' |');
       L.push('| URL | ' + c.url + ' |');
       L.push('| Referrer | ' + c.referrer + ' |');
       L.push('| Captured | ' + c.timestamp + ' |');
@@ -780,9 +867,15 @@
       var h = [];
       h.push('<div style="font-family:sans-serif">');
       h.push('<h1>🐞 ' + esc(c.title) + '</h1>');
+      var badges = [];
+      if (c.severity) badges.push('<b>Severity:</b> ' + esc(c.severity));
+      if (c.environment) badges.push('<b>Environment:</b> ' + esc(c.environment));
+      if (badges.length) h.push('<p>' + badges.join(' &nbsp;·&nbsp; ') + '</p>');
       if (c.description) h.push('<p>' + esc(c.description).replace(/\n/g, '<br>') + '</p>');
       if (imgDataUrl) h.push('<p><img src="' + imgDataUrl + '" alt="annotated screenshot" style="max-width:100%"></p>');
       h.push('<h2>Environment</h2><ul>');
+      if (c.environment) h.push('<li><b>Environment:</b> ' + esc(c.environment) + '</li>');
+      if (c.severity) h.push('<li><b>Severity:</b> ' + esc(c.severity) + '</li>');
       h.push('<li><b>URL:</b> ' + esc(c.url) + '</li>');
       h.push('<li><b>Browser:</b> ' + esc(c.browser) + '</li>');
       h.push('<li><b>OS:</b> ' + esc(c.os) + '</li>');

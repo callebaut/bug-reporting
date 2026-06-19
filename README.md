@@ -70,8 +70,55 @@ The copy uses a rich + plain clipboard:
 
 Backup buttons let you download the **PNG** and the **Markdown** report directly.
 
+## Severity & environment
+
+The report has a **Severity** dropdown and an **Environment** field that is
+**auto-detected from the page URL** (e.g. `localhost` → Local, `staging.` /
+`uat` → Staging, otherwise Production). The detected environment is pre-selected
+but you can override it in the widget before copying. Both appear at the top of
+the copied report.
+
+## Configuration (per user, no backend)
+
+The widget reads `window.__bugReporterConfig` if present, falling back to
+built-in defaults. The **bookmarklet sets this global before loading the
+script**, so each person's bookmarklet carries their own rules — no server
+needed. The landing page has an editable JSON box that bakes the config into the
+generated bookmarklet.
+
+```js
+window.__bugReporterConfig = {
+  severities: ['Blocker', 'Critical', 'Major', 'Minor', 'Trivial'],
+  defaultSeverity: 'Major',
+  environments: [            // ordered; first regex match against the URL wins
+    { match: 'localhost|127\\.0\\.0\\.1|\\.local', label: 'Local' },
+    { match: 'staging|uat|stage|stg|acc|test',     label: 'Staging' },
+    { match: '.*',                                  label: 'Production' }
+  ]
+};
+```
+
+`match` is a case-insensitive regular expression tested against the full URL.
+Omit a key (or pass an empty array) to use the built-in default for it. The
+generated bookmarklet looks like:
+
+```js
+javascript:(function(){
+  window.__bugReporterConfig={ ...your config... };
+  if(window.__bugReporter){window.__bugReporter.open();return;}
+  var s=document.createElement('script');
+  s.src='https://YOUR-HOST/bug-reporter.js?'+Date.now();
+  document.documentElement.appendChild(s);
+})();
+```
+
+For **team-wide** rules instead of per-person, host a small `config.js` that sets
+`window.__bugReporterConfig` and load it from the bookmarklet before
+`bug-reporter.js`.
+
 ## What's collected
 
+- Title, description, **severity**, **environment** (auto-detected from URL)
 - Annotated screenshot (PNG)
 - URL, referrer, page title, timestamp
 - Browser & OS (parsed UA + high-entropy `userAgentData` when available)

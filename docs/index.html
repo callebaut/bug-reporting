@@ -44,13 +44,22 @@
     <input id="host" type="text" spellcheck="false">
   </div>
 
-  <h2>2. Drag this to your bookmarks bar</h2>
+  <h2>2. Configure severity &amp; environments <span class="badge">optional</span></h2>
+  <p>The bug report includes a <b>Severity</b> dropdown and an <b>Environment</b> that's auto-detected from the page URL (first matching rule wins; you can still override it in the widget). Edit the rules below — they get baked into <em>your</em> bookmarklet, so each person can carry their own config without a backend.</p>
+  <div class="gen">
+    <label for="cfg">Config (JSON) — <code>match</code> is a case-insensitive regex tested against the full URL</label>
+    <textarea id="cfg" spellcheck="false" rows="14" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;font-family:ui-monospace,monospace;font-size:13px;"></textarea>
+    <p id="cfgerr" style="color:#cf222e;font-size:13px;margin:6px 0 0;"></p>
+    <p style="font-size:13px;color:var(--muted);margin:6px 0 0;">Leave it as-is for sensible defaults. Set <code>environments</code> to <code>[]</code> or remove a key to fall back to the built-in defaults for that key.</p>
+  </div>
+
+  <h2>3. Drag this to your bookmarks bar</h2>
   <p>Drag the button onto your browser's bookmarks bar (or right-click → bookmark the link). Clicking the bookmark on any page opens the widget.</p>
   <p><a class="bm" id="bm" href="#">🐞 Report a bug</a></p>
   <p style="font-size:13px;color:var(--muted)">Can't drag? Create a bookmark manually and paste this as the URL/location:</p>
   <pre id="bmcode"></pre>
 
-  <h2>3. Use it</h2>
+  <h2>4. Use it</h2>
   <ol>
     <li>Open the page with the bug. <b>Reproduce the bug</b> after clicking the bookmark so console &amp; network errors get captured.</li>
     <li>Click the bookmark → the widget opens bottom-right.</li>
@@ -93,8 +102,32 @@
   var hostIn = document.getElementById('host');
   hostIn.value = defaultUrl;
 
-  function bookmarklet(url) {
-    return "javascript:(function(){if(window.__bugReporter){window.__bugReporter.open();return;}var s=document.createElement('script');s.src='" +
+  // Default config shown in the editor (mirrors DEFAULT_CONFIG in bug-reporter.js).
+  var defaultConfig = {
+    severities: ["Blocker", "Critical", "Major", "Minor", "Trivial"],
+    defaultSeverity: "Major",
+    environments: [
+      { match: "localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0|\\.local(?::|/|$)", label: "Local" },
+      { match: "\\bdev\\b|//dev\\.|\\.dev\\.|-dev\\.|develop", label: "Development" },
+      { match: "staging|stage|stg|uat|\\bqa\\b|\\bacc\\b|accept|\\btest\\b|sandbox|preprod|preview", label: "Staging" },
+      { match: ".*", label: "Production" }
+    ]
+  };
+  var cfgIn = document.getElementById('cfg');
+  cfgIn.value = JSON.stringify(defaultConfig, null, 2);
+
+  function parsedConfig() {
+    var err = document.getElementById('cfgerr');
+    var raw = cfgIn.value.trim();
+    if (!raw) { err.textContent = ''; return null; }
+    try { var c = JSON.parse(raw); err.textContent = ''; return c; }
+    catch (e) { err.textContent = '⚠ Invalid JSON — bookmarklet will use built-in defaults until fixed: ' + e.message; return null; }
+  }
+
+  function bookmarklet(url, config) {
+    var cfgStmt = config ? "window.__bugReporterConfig=" + JSON.stringify(config) + ";" : "";
+    return "javascript:(function(){" + cfgStmt +
+      "if(window.__bugReporter){window.__bugReporter.open();return;}var s=document.createElement('script');s.src='" +
       url + "?'+Date.now();s.onerror=function(){alert('Bug Reporter failed to load from '+s.src);};document.documentElement.appendChild(s);})();";
   }
   function earlySnippet(url) {
@@ -103,16 +136,18 @@
 
   function refresh() {
     var url = hostIn.value.trim();
-    var code = bookmarklet(url);
+    var code = bookmarklet(url, parsedConfig());
     document.getElementById('bm').setAttribute('href', code);
     document.getElementById('bmcode').textContent = code;
     document.getElementById('early').textContent = earlySnippet(url);
   }
   hostIn.addEventListener('input', refresh);
+  cfgIn.addEventListener('input', refresh);
   refresh();
 
   // Demo wiring.
   document.getElementById('try').addEventListener('click', function () {
+    var c = parsedConfig(); if (c) window.__bugReporterConfig = c;
     if (window.__bugReporter) { window.__bugReporter.open(); return; }
     var s = document.createElement('script');
     s.src = hostIn.value.trim() + '?' + Date.now();
