@@ -64,7 +64,11 @@
 
     <label style="margin-top:18px">Environment rules <span style="font-weight:400;color:var(--muted)">(top to bottom; first match wins · <code>match</code> is a case-insensitive regex tested against the full URL)</span></label>
     <div id="envrows"></div>
-    <button type="button" id="addenv" class="addbtn">+ Add rule</button>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap;">
+      <button type="button" id="addenv" class="addbtn">+ Add rule</button>
+      <button type="button" id="resetcfg" class="addbtn">↺ Reset to defaults</button>
+      <span id="savednote" style="font-size:12px;color:var(--muted);"></span>
+    </div>
     <p id="cfgerr" style="color:#cf222e;font-size:13px;margin:8px 0 0;"></p>
   </div>
 
@@ -137,13 +141,42 @@
   var envRules = defaultConfig.environments.map(function (e) { return { match: e.match, label: e.label }; });
   sevsIn.value = defaultConfig.severities.join(', ');
 
+  // --- persistence: remember the config page in this browser ---------------
+  var STORE_KEY = 'bugReporterConfigPage';
+  var pendingDefaultSeverity = null; // applied on the next renderDefSev
+  function saveState() {
+    try {
+      localStorage.setItem(STORE_KEY, JSON.stringify({
+        host: hostIn.value,
+        severities: sevsIn.value,
+        defaultSeverity: defSevSel.value,
+        environments: envRules
+      }));
+      var n = document.getElementById('savednote');
+      if (n) n.textContent = '✓ Saved in this browser';
+    } catch (e) { /* storage unavailable (private mode) — ignore */ }
+  }
+  function loadState() {
+    try { return JSON.parse(localStorage.getItem(STORE_KEY)); } catch (e) { return null; }
+  }
+  (function applySaved() {
+    var saved = loadState();
+    if (!saved) return;
+    if (saved.host) hostIn.value = saved.host;
+    if (typeof saved.severities === 'string') sevsIn.value = saved.severities;
+    if (saved.defaultSeverity) pendingDefaultSeverity = saved.defaultSeverity;
+    if (Array.isArray(saved.environments) && saved.environments.length) {
+      envRules = saved.environments.map(function (e) { return { match: e.match || '', label: e.label || '' }; });
+    }
+  })();
+
   function severitiesFromInput() {
     return sevsIn.value.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
   }
 
   function renderDefSev() {
     var sevs = severitiesFromInput();
-    var cur = defSevSel.value || defaultConfig.defaultSeverity;
+    var cur = defSevSel.value || pendingDefaultSeverity || defaultConfig.defaultSeverity;
     defSevSel.innerHTML = '';
     (sevs.length ? sevs : defaultConfig.severities).forEach(function (s) {
       var o = document.createElement('option');
@@ -151,6 +184,7 @@
       if (s === cur) o.selected = true;
       defSevSel.appendChild(o);
     });
+    pendingDefaultSeverity = null;
   }
 
   function mkBtn(txt, title, fn) {
@@ -217,10 +251,23 @@
     document.getElementById('bm').setAttribute('href', code);
     document.getElementById('bmcode').textContent = code;
     document.getElementById('early').textContent = earlySnippet(url);
+    saveState();
   }
   hostIn.addEventListener('input', refresh);
   sevsIn.addEventListener('input', refresh);
   defSevSel.addEventListener('change', refresh);
+
+  document.getElementById('resetcfg').addEventListener('click', function () {
+    try { localStorage.removeItem(STORE_KEY); } catch (e) { }
+    hostIn.value = defaultUrl;
+    sevsIn.value = defaultConfig.severities.join(', ');
+    envRules = defaultConfig.environments.map(function (e) { return { match: e.match, label: e.label }; });
+    defSevSel.value = '';
+    pendingDefaultSeverity = defaultConfig.defaultSeverity;
+    renderEnvRows();
+    refresh();
+  });
+
   renderEnvRows();
   refresh();
 

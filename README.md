@@ -105,6 +105,10 @@ window.__bugReporterConfig = {
 };
 ```
 
+The landing-page form **remembers your entries in the browser** (`localStorage`),
+so you don't have to re-enter the host URL, severities, default severity, or
+environment rules each visit. Use **Reset to defaults** to clear them.
+
 `match` is a case-insensitive regular expression tested against the full URL.
 Omit a key (or pass an empty array) to use the built-in default for it. The
 generated bookmarklet looks like:
