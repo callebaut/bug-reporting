@@ -62,7 +62,9 @@ page does this for you).
 4. The screenshot appears as a **thumbnail** in the panel. **Click it** to open the
    annotation pop-up, draw with **pen / rectangle / arrow / text** (colours, undo,
    clear), then hit **Done** to return to the form. For text, pick the **T** tool,
-   tap where you want the label, and type (Enter to commit, Esc to cancel).
+   tap where you want the label, and type (Enter to commit, Esc to cancel). Use the
+   **✋ Move** tool to grab and drag any placed element (pen, box, arrow, or text)
+   to reposition it.
 5. Fill in **Title**, **Description**, **Expected results**, **Severity** and
    **Environment**.
 6. **Copy bug report to clipboard** → paste into your ticket.

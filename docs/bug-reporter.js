@@ -230,6 +230,9 @@
     var highlightBox = null;     // element-picker highlight
     var formState = null;        // persisted field values across re-renders
     var thumbImg = null;         // <img> in the form showing the current composite
+    var dragging = null;         // shape currently being dragged (move tool)
+    var dragLast = null;         // last pointer position while dragging
+    var selectedShape = null;    // shape highlighted for moving
 
     // -- Styles -------------------------------------------------------------
     var CSS = [
@@ -613,13 +616,20 @@
       var stack = el('div', { class: 'stack' }, [baseCanvas, annoCanvas]);
       var stage = el('div', { class: 'stage' }, [stack]);
 
+      function applyCursor() {
+        annoCanvas.style.cursor = drawTool === 'move' ? 'move' : (drawTool === 'text' ? 'text' : 'crosshair');
+      }
+
       // tools
-      var tools = [['pen', '✏️', 'Pen'], ['rect', '▭', 'Rectangle'], ['arrow', '↗', 'Arrow'], ['text', 'T', 'Text']];
+      var tools = [['pen', '✏️', 'Pen'], ['rect', '▭', 'Rectangle'], ['arrow', '↗', 'Arrow'], ['text', 'T', 'Text'], ['move', '✋', 'Move / drag elements']];
       var toolBtns = tools.map(function (t) {
         var b = el('button', { class: 'tool' + (t[0] === drawTool ? ' on' : ''), title: t[2], 'data-tool': t[0] });
         b.textContent = t[1];
         b.onclick = function () {
           drawTool = t[0];
+          if (drawTool !== 'move') selectedShape = null;
+          applyCursor();
+          redraw();
           modal.querySelectorAll('.tool[data-tool]').forEach(function (x) { x.classList.toggle('on', x.getAttribute('data-tool') === drawTool); });
         };
         return b;
@@ -635,9 +645,9 @@
         return s;
       });
       var undo = el('button', { class: 'tool', title: 'Undo' }); undo.textContent = '⎌';
-      undo.onclick = function () { shapes.pop(); redraw(); };
+      undo.onclick = function () { shapes.pop(); selectedShape = null; redraw(); };
       var clr = el('button', { class: 'btn sm', title: 'Clear annotations' }); clr.textContent = 'Clear';
-      clr.onclick = function () { shapes = []; redraw(); };
+      clr.onclick = function () { shapes = []; selectedShape = null; redraw(); };
       var done = el('button', { class: 'btn primary editdone' }); done.textContent = '✓ Done';
       done.onclick = closeEditor;
 
@@ -657,6 +667,9 @@
       var modal = el('div', { class: 'modal' }, [card]);
       modal.onclick = function (e) { if (e.target === modal) closeEditor(); };
       shadow.appendChild(modal);
+      selectedShape = null;
+      applyCursor();
+      redraw();
     }
 
     function closeEditor() {
@@ -678,8 +691,16 @@
 
     function bindDrawing(canvas) {
       function down(e) {
+        if (canvas !== annoCanvas) return;
         e.preventDefault();
         var p = canvasPoint(canvas, e);
+        if (drawTool === 'move') {
+          dragging = pickShape(p);
+          selectedShape = dragging;
+          dragLast = p;
+          redraw();
+          return;
+        }
         if (drawTool === 'text') { startTextInput(canvas, p); return; }
         current = { tool: drawTool, color: drawColor, size: drawSize * (canvas.width > 1000 ? 2 : 1) };
         if (drawTool === 'pen') current.points = [p];
@@ -687,7 +708,17 @@
         redraw();
       }
       function move(e) {
-        if (!current || canvas !== annoCanvas) return; // ignore stale bindings after re-capture
+        if (canvas !== annoCanvas) return; // ignore stale bindings after re-capture
+        if (drawTool === 'move') {
+          if (!dragging) return;
+          e.preventDefault();
+          var pm = canvasPoint(canvas, e);
+          translateShape(dragging, pm.x - dragLast.x, pm.y - dragLast.y);
+          dragLast = pm;
+          redraw();
+          return;
+        }
+        if (!current) return;
         e.preventDefault();
         var p = canvasPoint(canvas, e);
         if (current.tool === 'pen') current.points.push(p);
@@ -695,6 +726,7 @@
         redraw();
       }
       function up() {
+        if (dragging) { dragging = null; return; }
         if (!current) return;
         shapes.push(current);
         current = null;
@@ -733,7 +765,7 @@
         ctx.closePath();
         ctx.fill();
       } else if (s.tool === 'text') {
-        ctx.font = '700 ' + s.size + 'px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif';
+        ctx.font = textFont(s);
         ctx.textBaseline = 'top';
         ctx.save();
         ctx.shadowColor = 'rgba(0,0,0,.55)';
@@ -742,6 +774,73 @@
         s.text.split('\n').forEach(function (line, i) { ctx.fillText(line, s.x, s.y + i * lh); });
         ctx.restore();
       }
+    }
+
+    function textFont(s) {
+      return '700 ' + s.size + 'px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif';
+    }
+
+    // -- Move / drag support ------------------------------------------------
+    function grabPx() {
+      // a comfortable hit radius in canvas pixels (≈14 CSS px, finger-friendly)
+      var scale = (annoCanvas.clientWidth / annoCanvas.width) || 1;
+      return 14 / scale;
+    }
+
+    function distToSeg(p, a, b) {
+      var dx = b.x - a.x, dy = b.y - a.y;
+      var len2 = dx * dx + dy * dy;
+      var t = len2 ? ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2 : 0;
+      t = Math.max(0, Math.min(1, t));
+      var cx = a.x + t * dx, cy = a.y + t * dy;
+      return Math.hypot(p.x - cx, p.y - cy);
+    }
+
+    function shapeBBox(s) {
+      if (s.tool === 'text') {
+        annoCtx.font = textFont(s);
+        var w = 0;
+        s.text.split('\n').forEach(function (l) { w = Math.max(w, annoCtx.measureText(l).width); });
+        var lines = s.text.split('\n').length;
+        return { x: s.x, y: s.y, x2: s.x + w, y2: s.y + lines * s.size * 1.25 };
+      }
+      if (s.tool === 'pen') {
+        var xs = s.points.map(function (q) { return q.x; });
+        var ys = s.points.map(function (q) { return q.y; });
+        return { x: Math.min.apply(null, xs), y: Math.min.apply(null, ys), x2: Math.max.apply(null, xs), y2: Math.max.apply(null, ys) };
+      }
+      return { x: Math.min(s.x0, s.x1), y: Math.min(s.y0, s.y1), x2: Math.max(s.x0, s.x1), y2: Math.max(s.y0, s.y1) };
+    }
+
+    function hitShape(s, p, grab) {
+      if (s.tool === 'text' || s.tool === 'rect') {
+        var b = shapeBBox(s);
+        return p.x >= b.x - grab && p.x <= b.x2 + grab && p.y >= b.y - grab && p.y <= b.y2 + grab;
+      }
+      if (s.tool === 'arrow') {
+        return distToSeg(p, { x: s.x0, y: s.y0 }, { x: s.x1, y: s.y1 }) <= grab + s.size;
+      }
+      if (s.tool === 'pen') {
+        if (s.points.length === 1) return Math.hypot(p.x - s.points[0].x, p.y - s.points[0].y) <= grab + s.size;
+        for (var i = 1; i < s.points.length; i++) {
+          if (distToSeg(p, s.points[i - 1], s.points[i]) <= grab + s.size) return true;
+        }
+      }
+      return false;
+    }
+
+    function pickShape(p) {
+      var grab = grabPx();
+      for (var i = shapes.length - 1; i >= 0; i--) { // topmost first
+        if (hitShape(shapes[i], p, grab)) return shapes[i];
+      }
+      return null;
+    }
+
+    function translateShape(s, dx, dy) {
+      if (s.tool === 'pen') { s.points.forEach(function (q) { q.x += dx; q.y += dy; }); }
+      else if (s.tool === 'text') { s.x += dx; s.y += dy; }
+      else { s.x0 += dx; s.y0 += dy; s.x1 += dx; s.y1 += dy; }
     }
 
     // Inline text entry over the editor canvas; commits a 'text' annotation.
@@ -777,6 +876,16 @@
       annoCtx.clearRect(0, 0, annoCanvas.width, annoCanvas.height);
       shapes.forEach(function (s) { drawShape(annoCtx, s); });
       if (current) drawShape(annoCtx, current);
+      if (drawTool === 'move' && selectedShape && shapes.indexOf(selectedShape) >= 0) {
+        var b = shapeBBox(selectedShape);
+        var pad = grabPx() * 0.4;
+        annoCtx.save();
+        annoCtx.setLineDash([8, 5]);
+        annoCtx.lineWidth = Math.max(2, annoCanvas.width / 500);
+        annoCtx.strokeStyle = '#1f6feb';
+        annoCtx.strokeRect(b.x - pad, b.y - pad, (b.x2 - b.x) + 2 * pad, (b.y2 - b.y) + 2 * pad);
+        annoCtx.restore();
+      }
     }
 
     function compositeCanvas() {
