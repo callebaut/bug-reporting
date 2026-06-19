@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bug Reporter — bookmarklet bug-logging widget</title>
+<style>
+  :root { --blue:#1f6feb; --ink:#1c2128; --muted:#57606a; --line:#d0d7de; --bg:#f6f8fa; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; color:var(--ink); line-height:1.55; }
+  .wrap { max-width:820px; margin:0 auto; padding:32px 20px 80px; }
+  header { background:linear-gradient(135deg,#1f6feb,#0a3a8c); color:#fff; padding:48px 20px; text-align:center; }
+  header h1 { margin:0 0 8px; font-size:34px; }
+  header p { margin:0; opacity:.92; font-size:17px; }
+  h2 { margin-top:40px; border-bottom:1px solid var(--line); padding-bottom:6px; }
+  code, pre { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+  pre { background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:14px; overflow:auto; font-size:13px; }
+  .bm { display:inline-block; background:var(--blue); color:#fff; text-decoration:none; padding:12px 22px; border-radius:10px; font-weight:700; font-size:16px; box-shadow:0 4px 14px rgba(31,111,235,.4); cursor:grab; }
+  .bm:active { cursor:grabbing; }
+  .gen { background:var(--bg); border:1px solid var(--line); border-radius:12px; padding:20px; margin:18px 0; }
+  .gen label { display:block; font-weight:600; font-size:13px; margin-bottom:6px; }
+  .gen input { width:100%; padding:10px; border:1px solid var(--line); border-radius:8px; font-size:14px; font-family:ui-monospace,monospace; }
+  ol li, ul li { margin:6px 0; }
+  .note { background:#fff8c5; border:1px solid #d4a72c; border-radius:8px; padding:12px 14px; font-size:14px; }
+  .btn { background:#1f883d; color:#fff; border:none; padding:12px 20px; border-radius:10px; font-weight:700; font-size:15px; cursor:pointer; }
+  .demo { border:1px dashed var(--line); border-radius:12px; padding:20px; margin-top:14px; }
+  .demo .broken { color:#fff; background:#cf222e; padding:10px; border-radius:6px; display:inline-block; margin:8px 0; transform:skew(-6deg); }
+  .badge { display:inline-block; background:var(--ink); color:#fff; border-radius:20px; padding:3px 10px; font-size:12px; }
+  footer { color:var(--muted); font-size:13px; margin-top:40px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🐞 Bug Reporter</h1>
+  <p>A bookmarklet that opens a bug-logging widget on any page — capture, annotate, copy, paste into Jira / Azure DevOps.</p>
+</header>
+
+<div class="wrap">
+
+  <h2>1. Set your hosted URL</h2>
+  <p>The bookmarklet loads <code>bug-reporter.js</code> from wherever you host it. This page is served from GitHub Pages, so the field below is pre-filled with this site's URL. Change it if you host elsewhere.</p>
+  <div class="gen">
+    <label for="host">URL of <code>bug-reporter.js</code></label>
+    <input id="host" type="text" spellcheck="false">
+  </div>
+
+  <h2>2. Drag this to your bookmarks bar</h2>
+  <p>Drag the button onto your browser's bookmarks bar (or right-click → bookmark the link). Clicking the bookmark on any page opens the widget.</p>
+  <p><a class="bm" id="bm" href="#">🐞 Report a bug</a></p>
+  <p style="font-size:13px;color:var(--muted)">Can't drag? Create a bookmark manually and paste this as the URL/location:</p>
+  <pre id="bmcode"></pre>
+
+  <h2>3. Use it</h2>
+  <ol>
+    <li>Open the page with the bug. <b>Reproduce the bug</b> after clicking the bookmark so console &amp; network errors get captured.</li>
+    <li>Click the bookmark → the widget opens bottom-right.</li>
+    <li>Hit <b>Select an element</b>, hover, and click the element to screenshot it.</li>
+    <li>Annotate with the pen / rectangle / arrow tools.</li>
+    <li>Add a title &amp; description, then <b>Copy bug report</b>.</li>
+    <li>Paste (Ctrl/Cmd+V) into your Jira / Azure DevOps ticket. The screenshot pastes inline and all the context comes with it.</li>
+  </ol>
+
+  <div class="note">
+    <b>What gets collected:</b> annotated screenshot, page URL &amp; title, browser &amp; OS, viewport / screen / DPR, device info, your selected element (selector + HTML + position), console errors &amp; warnings, uncaught JS errors, failed network requests, and — optionally — cookies, localStorage &amp; sessionStorage. Designed so an AI agent can pick up the ticket and fix the bug.
+    <br><br>
+    ⚠️ Cookies &amp; storage may contain auth tokens. There's a toggle in the widget — leave it off for tickets shared widely.
+  </div>
+
+  <h2>Try the demo</h2>
+  <p>Click below to load the widget on <em>this</em> page, then capture the broken-looking box.</p>
+  <button class="btn" id="try">Load widget on this page</button>
+  <div class="demo">
+    <p>Some demo content. <span class="broken">↯ This element looks broken ↯</span></p>
+    <p>Pretend this button throws: <button id="boom">Trigger a console error</button> <span class="badge">try it before capturing</span></p>
+  </div>
+
+  <h2>Capturing errors from page load</h2>
+  <p>A bookmarklet only loads when clicked, so it captures errors that happen <em>after</em> that. To capture everything from the very first paint on your own dev/staging site, add this near the top of <code>&lt;head&gt;</code>:</p>
+  <pre id="early"></pre>
+
+  <footer>
+    Open-source style bookmarklet, modelled on <a href="https://github.com/openfed/AccessibilityCheck">openfed/AccessibilityCheck</a>.
+    Screenshots via <a href="https://github.com/niklasvh/html2canvas">html2canvas</a> (MIT), vendored locally — no CDN needed.
+  </footer>
+</div>
+
+<script>
+  // Default to this site's own location (GitHub Pages friendly).
+  var defaultUrl = location.href.replace(/index\.html?$/, '').replace(/[^/]*$/, '') + 'bug-reporter.js';
+  if (!/\/$/.test(location.pathname) && !/bug-reporter\.js$/.test(defaultUrl)) {
+    defaultUrl = location.origin + location.pathname.replace(/[^/]*$/, '') + 'bug-reporter.js';
+  }
+  var hostIn = document.getElementById('host');
+  hostIn.value = defaultUrl;
+
+  function bookmarklet(url) {
+    return "javascript:(function(){if(window.__bugReporter){window.__bugReporter.open();return;}var s=document.createElement('script');s.src='" +
+      url + "?'+Date.now();s.onerror=function(){alert('Bug Reporter failed to load from '+s.src);};document.documentElement.appendChild(s);})();";
+  }
+  function earlySnippet(url) {
+    return '<script>\n  // Optional: capture console/network errors from page load.\n  (function(){var c=window.__brEarly={console:[],errors:[]};\n  ["log","info","warn","error"].forEach(function(l){var o=console[l];console[l]=function(){c.console.push({level:l,time:new Date().toISOString(),text:[].map.call(arguments,String).join(" ")});return o.apply(console,arguments);};});\n  window.addEventListener("error",function(e){c.errors.push({message:e.message,time:new Date().toISOString()});});})();\n<\/scr'+'ipt>';
+  }
+
+  function refresh() {
+    var url = hostIn.value.trim();
+    var code = bookmarklet(url);
+    document.getElementById('bm').setAttribute('href', code);
+    document.getElementById('bmcode').textContent = code;
+    document.getElementById('early').textContent = earlySnippet(url);
+  }
+  hostIn.addEventListener('input', refresh);
+  refresh();
+
+  // Demo wiring.
+  document.getElementById('try').addEventListener('click', function () {
+    if (window.__bugReporter) { window.__bugReporter.open(); return; }
+    var s = document.createElement('script');
+    s.src = hostIn.value.trim() + '?' + Date.now();
+    s.onerror = function () { alert('Could not load ' + s.src + ' — is the URL correct and the file deployed?'); };
+    document.documentElement.appendChild(s);
+  });
+  document.getElementById('boom').addEventListener('click', function () {
+    console.error('Demo error: something went wrong in the checkout flow', new Error('Checkout failed'));
+  });
+</script>
+</body>
+</html>
