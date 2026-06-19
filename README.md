@@ -67,7 +67,9 @@ page does this for you).
    (Enter commits, Shift+Enter for a new line, Esc cancels); text uses the selected
    colour with a crisp outline. **Click an existing text label with the T tool to
    edit it** (emptying it deletes it). Use the **✋ Move** tool to grab and drag any
-   placed element (pen, box, arrow, or text) to reposition it.
+   placed element (pen, box, arrow, or text) to reposition it. With an element
+   selected, press **Delete/Backspace** or click the **🗑 Delete** button (it
+   turns red when something is selected) to remove it.
 5. Fill in **Title**, **Description**, **Expected results**, **Severity** and
    **Environment**.
 6. **Copy bug report to clipboard** → paste into your ticket.

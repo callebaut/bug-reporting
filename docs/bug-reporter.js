@@ -286,6 +286,9 @@
       '.szbtn[data-size="s"]{font-size:11px;}',
       '.szbtn[data-size="m"]{font-size:14px;}',
       '.szbtn[data-size="l"]{font-size:19px;}',
+      '.tool:disabled{opacity:.35;cursor:default;}',
+      '.delbtn:not(:disabled){border-color:#cf222e;background:#ffebe9;}',
+      '.delbtn:not(:disabled):hover{background:#ffcecb;}',
       '.grp{display:inline-flex;align-items:center;gap:6px;}',
       '.fsizesel{height:32px;border:1px solid #d0d7de;border-radius:7px;background:#f6f8fa;font-size:13px;padding:0 4px;cursor:pointer;color:#1c2128;}',
       '.boldbtn{font-family:Georgia,"Times New Roman",serif;}',
@@ -690,6 +693,9 @@
         textGrp.style.display = isText ? 'inline-flex' : 'none';
       }
 
+      var delBtn = el('button', { class: 'tool delbtn', title: 'Delete selected element (Del) — pick it with the ✋ Move tool first' });
+      delBtn.textContent = '🗑'; delBtn.disabled = !selectedShape;
+      delBtn.onclick = deleteSelected;
       var undo = el('button', { class: 'tool', title: 'Undo' }); undo.textContent = '⎌';
       undo.onclick = function () { shapes.pop(); selectedShape = null; redraw(); };
       var clr = el('button', { class: 'btn sm', title: 'Clear annotations' }); clr.textContent = 'Clear';
@@ -702,7 +708,7 @@
           .concat([el('span', { class: 'sep' })])
           .concat(swatchBtns)
           .concat([el('span', { class: 'sep' }), shapeGrp, textGrp])
-          .concat([el('span', { class: 'sep' }), undo, clr]));
+          .concat([el('span', { class: 'sep' }), delBtn, undo, clr]));
 
       var close = el('button', { class: 'edx', title: 'Done' }); close.innerHTML = '&times;';
       close.onclick = closeEditor;
@@ -720,9 +726,11 @@
       applyCursor();
       updateGroups();
       redraw();
+      document.addEventListener('keydown', onEditorKey, true);
     }
 
     function closeEditor() {
+      document.removeEventListener('keydown', onEditorKey, true);
       var modal = shadow.querySelector('.modal');
       if (modal) modal.remove();
       // canvases were detached with the modal; rebuild the form with a fresh thumb
@@ -907,6 +915,30 @@
       else { s.x0 += dx; s.y0 += dy; s.x1 += dx; s.y1 += dy; }
     }
 
+    function deleteSelected() {
+      if (!selectedShape) return;
+      var i = shapes.indexOf(selectedShape);
+      if (i >= 0) shapes.splice(i, 1);
+      selectedShape = null;
+      redraw();
+    }
+
+    function updateDeleteState() {
+      var b = shadow && shadow.querySelector('.delbtn');
+      if (b) b.disabled = !selectedShape;
+    }
+
+    // Delete / Backspace removes the selected element (unless a field is focused).
+    function onEditorKey(e) {
+      var ae = shadow.activeElement;
+      if (ae && /^(TEXTAREA|INPUT|SELECT)$/.test(ae.tagName)) return;
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedShape) {
+        e.preventDefault(); deleteSelected();
+      } else if (e.key === 'Escape' && selectedShape) {
+        e.preventDefault(); selectedShape = null; redraw();
+      }
+    }
+
     function snapFontSize(px) {
       return FONT_SIZES.reduce(function (best, s) {
         return Math.abs(s - px) < Math.abs(best - px) ? s : best;
@@ -1002,6 +1034,7 @@
         annoCtx.strokeRect(b.x - pad, b.y - pad, (b.x2 - b.x) + 2 * pad, (b.y2 - b.y) + 2 * pad);
         annoCtx.restore();
       }
+      updateDeleteState();
     }
 
     function compositeCanvas() {
