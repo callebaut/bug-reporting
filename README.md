@@ -83,8 +83,9 @@ the copied report.
 The widget reads `window.__bugReporterConfig` if present, falling back to
 built-in defaults. The **bookmarklet sets this global before loading the
 script**, so each person's bookmarklet carries their own rules — no server
-needed. The landing page has an editable JSON box that bakes the config into the
-generated bookmarklet.
+needed. The landing page has a small form — severity list, default severity, and
+add/remove/reorder environment rules — that bakes the config into the generated
+bookmarklet.
 
 ```js
 window.__bugReporterConfig = {

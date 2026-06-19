@@ -20,6 +20,15 @@
   .gen { background:var(--bg); border:1px solid var(--line); border-radius:12px; padding:20px; margin:18px 0; }
   .gen label { display:block; font-weight:600; font-size:13px; margin-bottom:6px; }
   .gen input { width:100%; padding:10px; border:1px solid var(--line); border-radius:8px; font-size:14px; font-family:ui-monospace,monospace; }
+  .gen select { width:100%; padding:10px; border:1px solid var(--line); border-radius:8px; font-size:14px; background:#fff; cursor:pointer; }
+  .envrow { display:flex; gap:6px; margin-top:8px; align-items:center; }
+  .envrow input { padding:9px; border:1px solid var(--line); border-radius:8px; font-family:ui-monospace,monospace; font-size:13px; min-width:0; }
+  .envrow input.envmatch { flex:2; }
+  .envrow input.envlabel { flex:1; }
+  .envbtn { border:1px solid var(--line); background:#fff; border-radius:8px; cursor:pointer; width:34px; height:36px; flex:none; font-size:14px; }
+  .envbtn:hover { background:var(--bg); }
+  .addbtn { margin-top:10px; border:1px solid var(--line); background:var(--bg); border-radius:8px; padding:8px 14px; cursor:pointer; font-weight:600; font-size:14px; }
+  .addbtn:hover { background:#eaeef2; }
   ol li, ul li { margin:6px 0; }
   .note { background:#fff8c5; border:1px solid #d4a72c; border-radius:8px; padding:12px 14px; font-size:14px; }
   .btn { background:#1f883d; color:#fff; border:none; padding:12px 20px; border-radius:10px; font-weight:700; font-size:15px; cursor:pointer; }
@@ -45,12 +54,18 @@
   </div>
 
   <h2>2. Configure severity &amp; environments <span class="badge">optional</span></h2>
-  <p>The bug report includes a <b>Severity</b> dropdown and an <b>Environment</b> that's auto-detected from the page URL (first matching rule wins; you can still override it in the widget). Edit the rules below — they get baked into <em>your</em> bookmarklet, so each person can carry their own config without a backend.</p>
+  <p>The bug report includes a <b>Severity</b> dropdown and an <b>Environment</b> that's auto-detected from the page URL (first matching rule wins; you can still override it in the widget). Edit the values below — they get baked into <em>your</em> bookmarklet, so each person can carry their own config without a backend.</p>
   <div class="gen">
-    <label for="cfg">Config (JSON) — <code>match</code> is a case-insensitive regex tested against the full URL</label>
-    <textarea id="cfg" spellcheck="false" rows="14" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;font-family:ui-monospace,monospace;font-size:13px;"></textarea>
-    <p id="cfgerr" style="color:#cf222e;font-size:13px;margin:6px 0 0;"></p>
-    <p style="font-size:13px;color:var(--muted);margin:6px 0 0;">Leave it as-is for sensible defaults. Set <code>environments</code> to <code>[]</code> or remove a key to fall back to the built-in defaults for that key.</p>
+    <label for="sevs">Severity options <span style="font-weight:400;color:var(--muted)">(comma-separated, in order)</span></label>
+    <input id="sevs" type="text" spellcheck="false">
+
+    <label for="defsev" style="margin-top:14px">Default severity</label>
+    <select id="defsev"></select>
+
+    <label style="margin-top:18px">Environment rules <span style="font-weight:400;color:var(--muted)">(top to bottom; first match wins · <code>match</code> is a case-insensitive regex tested against the full URL)</span></label>
+    <div id="envrows"></div>
+    <button type="button" id="addenv" class="addbtn">+ Add rule</button>
+    <p id="cfgerr" style="color:#cf222e;font-size:13px;margin:8px 0 0;"></p>
   </div>
 
   <h2>3. Drag this to your bookmarks bar</h2>
@@ -113,15 +128,76 @@
       { match: ".*", label: "Production" }
     ]
   };
-  var cfgIn = document.getElementById('cfg');
-  cfgIn.value = JSON.stringify(defaultConfig, null, 2);
+  // --- config form (separate inputs) ---------------------------------------
+  var sevsIn = document.getElementById('sevs');
+  var defSevSel = document.getElementById('defsev');
+  var envRowsEl = document.getElementById('envrows');
+  var cfgErr = document.getElementById('cfgerr');
+  // working copy of the environment rules (order matters)
+  var envRules = defaultConfig.environments.map(function (e) { return { match: e.match, label: e.label }; });
+  sevsIn.value = defaultConfig.severities.join(', ');
 
-  function parsedConfig() {
-    var err = document.getElementById('cfgerr');
-    var raw = cfgIn.value.trim();
-    if (!raw) { err.textContent = ''; return null; }
-    try { var c = JSON.parse(raw); err.textContent = ''; return c; }
-    catch (e) { err.textContent = '⚠ Invalid JSON — bookmarklet will use built-in defaults until fixed: ' + e.message; return null; }
+  function severitiesFromInput() {
+    return sevsIn.value.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+  }
+
+  function renderDefSev() {
+    var sevs = severitiesFromInput();
+    var cur = defSevSel.value || defaultConfig.defaultSeverity;
+    defSevSel.innerHTML = '';
+    (sevs.length ? sevs : defaultConfig.severities).forEach(function (s) {
+      var o = document.createElement('option');
+      o.value = s; o.textContent = s;
+      if (s === cur) o.selected = true;
+      defSevSel.appendChild(o);
+    });
+  }
+
+  function mkBtn(txt, title, fn) {
+    var b = document.createElement('button');
+    b.type = 'button'; b.className = 'envbtn'; b.textContent = txt; b.title = title;
+    b.addEventListener('click', fn);
+    return b;
+  }
+
+  function renderEnvRows() {
+    envRowsEl.innerHTML = '';
+    envRules.forEach(function (env, i) {
+      var row = document.createElement('div');
+      row.className = 'envrow';
+      var m = document.createElement('input');
+      m.type = 'text'; m.className = 'envmatch'; m.value = env.match;
+      m.placeholder = 'regex e.g. staging|uat'; m.spellcheck = false;
+      var l = document.createElement('input');
+      l.type = 'text'; l.className = 'envlabel'; l.value = env.label;
+      l.placeholder = 'label'; l.spellcheck = false;
+      m.addEventListener('input', function () { envRules[i].match = m.value; refresh(); });
+      l.addEventListener('input', function () { envRules[i].label = l.value; refresh(); });
+      var up = mkBtn('↑', 'Move up', function () { if (i > 0) { swapEnv(i, i - 1); renderEnvRows(); refresh(); } });
+      var dn = mkBtn('↓', 'Move down', function () { if (i < envRules.length - 1) { swapEnv(i, i + 1); renderEnvRows(); refresh(); } });
+      var rm = mkBtn('✕', 'Remove', function () { envRules.splice(i, 1); renderEnvRows(); refresh(); });
+      row.appendChild(m); row.appendChild(l); row.appendChild(up); row.appendChild(dn); row.appendChild(rm);
+      envRowsEl.appendChild(row);
+    });
+  }
+  function swapEnv(a, b) { var t = envRules[a]; envRules[a] = envRules[b]; envRules[b] = t; }
+
+  document.getElementById('addenv').addEventListener('click', function () {
+    envRules.push({ match: '', label: '' });
+    renderEnvRows(); refresh();
+  });
+
+  // Build the config object the bookmarklet will carry. Empty keys fall back to
+  // the widget's built-in defaults, so we omit them when blank.
+  function collectConfig() {
+    var sevs = severitiesFromInput();
+    var envs = envRules.filter(function (e) { return e.match.trim() && e.label.trim(); });
+    cfgErr.textContent = (sevs.length === 0)
+      ? '⚠ No severity options — the widget will use its built-in list.' : '';
+    var cfg = {};
+    if (sevs.length) { cfg.severities = sevs; cfg.defaultSeverity = defSevSel.value; }
+    if (envs.length) cfg.environments = envs;
+    return Object.keys(cfg).length ? cfg : null;
   }
 
   function bookmarklet(url, config) {
@@ -135,19 +211,22 @@
   }
 
   function refresh() {
+    renderDefSev(); // keep the default-severity options in sync with the list
     var url = hostIn.value.trim();
-    var code = bookmarklet(url, parsedConfig());
+    var code = bookmarklet(url, collectConfig());
     document.getElementById('bm').setAttribute('href', code);
     document.getElementById('bmcode').textContent = code;
     document.getElementById('early').textContent = earlySnippet(url);
   }
   hostIn.addEventListener('input', refresh);
-  cfgIn.addEventListener('input', refresh);
+  sevsIn.addEventListener('input', refresh);
+  defSevSel.addEventListener('change', refresh);
+  renderEnvRows();
   refresh();
 
   // Demo wiring.
   document.getElementById('try').addEventListener('click', function () {
-    var c = parsedConfig(); if (c) window.__bugReporterConfig = c;
+    var c = collectConfig(); if (c) window.__bugReporterConfig = c;
     if (window.__bugReporter) { window.__bugReporter.open(); return; }
     var s = document.createElement('script');
     s.src = hostIn.value.trim() + '?' + Date.now();
