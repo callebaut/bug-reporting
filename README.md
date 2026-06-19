@@ -59,8 +59,11 @@ page does this for you).
    & network errors are captured (see note below).
 2. Click the bookmark → widget opens bottom-right.
 3. **Select an element** → hover and click the element to screenshot.
-4. Annotate with **pen / rectangle / arrow**, pick colours, undo/clear.
-5. Add a **title & description**.
+4. The screenshot appears as a **thumbnail** in the panel. **Click it** to open the
+   annotation pop-up, draw with **pen / rectangle / arrow** (colours, undo, clear),
+   then hit **Done** to return to the form.
+5. Fill in **Title**, **Description**, **Expected results**, **Severity** and
+   **Environment**.
 6. **Copy bug report to clipboard** → paste into your ticket.
 
 The copy uses a rich + plain clipboard:
@@ -119,7 +122,7 @@ For **team-wide** rules instead of per-person, host a small `config.js` that set
 
 ## What's collected
 
-- Title, description, **severity**, **environment** (auto-detected from URL)
+- Title, description, **expected results**, **severity**, **environment** (auto-detected from URL)
 - Annotated screenshot (PNG)
 - URL, referrer, page title, timestamp
 - Browser & OS (parsed UA + high-entropy `userAgentData` when available)

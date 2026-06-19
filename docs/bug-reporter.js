@@ -228,6 +228,8 @@
     var drawColor = '#ff3b30';
     var drawSize = 4;
     var highlightBox = null;     // element-picker highlight
+    var formState = null;        // persisted field values across re-renders
+    var thumbImg = null;         // <img> in the form showing the current composite
 
     // -- Styles -------------------------------------------------------------
     var CSS = [
@@ -254,11 +256,28 @@
       'select.txt{height:36px;cursor:pointer;}',
       'textarea.txt{resize:vertical;min-height:60px;}',
       '.hint{color:#57606a;font-size:12px;margin:8px 0 0;line-height:1.4;}',
-      '.preview{position:relative;margin-top:10px;border:1px solid #d0d7de;border-radius:8px;overflow:auto;max-height:240px;background:#f6f8fa;}',
-      '.preview canvas{display:block;}',
-      '.preview .stack{position:relative;}',
-      '.preview .stack canvas{position:absolute;left:0;top:0;}',
-      '.preview .stack canvas.base{position:static;}',
+      // form thumbnail
+      '.thumbwrap{position:relative;margin-top:6px;border:1px solid #d0d7de;border-radius:8px;overflow:hidden;background:#f6f8fa;cursor:pointer;display:block;}',
+      '.thumbwrap:hover{border-color:#1f6feb;}',
+      '.thumb{display:block;width:100%;min-height:64px;max-height:200px;object-fit:contain;object-position:top;color:#57606a;font-size:12px;}',
+      '.thumbhint{position:absolute;left:0;right:0;bottom:0;padding:6px 8px;font-size:12px;font-weight:600;color:#fff;background:linear-gradient(transparent,rgba(0,0,0,.65));text-align:center;}',
+      // editor modal
+      '.modal{position:fixed;inset:0;background:rgba(15,20,25,.72);z-index:2147483647;display:flex;align-items:center;justify-content:center;padding:20px;}',
+      '.edcard{background:#fff;border-radius:12px;box-shadow:0 12px 60px rgba(0,0,0,.5);display:flex;flex-direction:column;max-width:calc(100vw - 40px);max-height:calc(100vh - 40px);overflow:hidden;}',
+      '.edhd{display:flex;align-items:center;gap:10px;padding:12px 16px;background:#1f6feb;color:#fff;}',
+      '.edhd b{font-size:15px;}',
+      '.edhint{flex:1;font-size:12px;opacity:.85;}',
+      '.edx{background:transparent;border:none;color:#fff;cursor:pointer;font-size:22px;line-height:1;padding:2px 8px;border-radius:6px;}',
+      '.edx:hover{background:rgba(255,255,255,.2);}',
+      '.stage{overflow:auto;padding:16px;background:#eef1f4;display:flex;justify-content:center;}',
+      '.stack{position:relative;line-height:0;}',
+      '.stack canvas{position:absolute;left:0;top:0;}',
+      '.stack canvas.base{position:static;box-shadow:0 1px 6px rgba(0,0,0,.2);}',
+      '.stack canvas:not(.base){cursor:crosshair;touch-action:none;}',
+      '.edfoot{display:flex;align-items:center;gap:10px;padding:12px 16px;border-top:1px solid #eaeef2;flex-wrap:wrap;}',
+      '.edtoolbar{display:flex;flex-wrap:wrap;align-items:center;gap:6px;flex:1;}',
+      '.edtoolbar .sep{width:1px;height:24px;background:#eaeef2;display:inline-block;}',
+      '.btn.editdone{width:auto;padding:9px 18px;}',
       '.toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:10px;}',
       '.tool{width:32px;height:32px;border-radius:7px;border:1px solid #d0d7de;background:#f6f8fa;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;}',
       '.tool.on{background:#1f6feb;border-color:#1f6feb;color:#fff;}',
@@ -336,6 +355,7 @@
     function renderPanel() {
       clearShadowBody();
       state = 'panel';
+      formState = null; // fresh report
       var pick = el('button', { class: 'btn primary' });
       pick.innerHTML = '🎯 Select an element to capture';
       pick.onclick = startPicking;
@@ -426,7 +446,17 @@
           ignoreElements: function (e2) { return e2 === rootHost; }
         }).then(function (canvas) {
           baseCanvas = canvas;
-          renderAnnotate();
+          baseCanvas.className = 'base';
+          // fresh drawing overlay sized to the screenshot
+          shapes = [];
+          current = null;
+          annoCanvas = document.createElement('canvas');
+          annoCanvas.width = baseCanvas.width;
+          annoCanvas.height = baseCanvas.height;
+          annoCtx = annoCanvas.getContext('2d');
+          bindDrawing(annoCanvas);
+          ensureFormState();
+          renderForm();
         }).catch(function (e2) {
           renderError('Screenshot failed: ' + (e2 && e2.message ? e2.message : e2) +
             '. The element may contain cross-origin content.');
@@ -446,110 +476,78 @@
       shadow.appendChild(panelShell('Report a bug', body));
     }
 
-    // -- Annotation view ----------------------------------------------------
-    function renderAnnotate() {
-      clearShadowBody();
-      state = 'annotating';
-      shapes = [];
-      current = null;
-
-      // drawing overlay matches base resolution
-      annoCanvas = document.createElement('canvas');
-      annoCanvas.width = baseCanvas.width;
-      annoCanvas.height = baseCanvas.height;
-      annoCtx = annoCanvas.getContext('2d');
-      baseCanvas.className = 'base';
-
-      var stack = el('div', { class: 'stack' }, [baseCanvas, annoCanvas]);
-      // fit width to panel
-      var maxW = 348;
-      var displayW = Math.min(maxW, baseCanvas.width);
-      var ratio = displayW / baseCanvas.width;
-      [baseCanvas, annoCanvas].forEach(function (c) {
-        c.style.width = displayW + 'px';
-        c.style.height = (baseCanvas.height * ratio) + 'px';
+    // -- Form view ----------------------------------------------------------
+    function buildSelect(values, selected) {
+      var sel = el('select', { class: 'txt' });
+      values.forEach(function (v) {
+        var o = el('option', { value: v, text: v });
+        if (v === selected) o.selected = true;
+        sel.appendChild(o);
       });
-      var preview = el('div', { class: 'preview' }, [stack]);
+      return sel;
+    }
 
-      bindDrawing(annoCanvas);
-
-      // toolbar
-      var tools = [['pen', '✏️', 'Pen'], ['rect', '▭', 'Rectangle'], ['arrow', '↗', 'Arrow']];
-      var toolBtns = tools.map(function (t) {
-        var b = el('button', { class: 'tool' + (t[0] === drawTool ? ' on' : ''), title: t[2], 'data-tool': t[0] });
-        b.textContent = t[1];
-        b.onclick = function () {
-          drawTool = t[0];
-          shadow.querySelectorAll('.tool').forEach(function (x) { x.classList.toggle('on', x.getAttribute('data-tool') === drawTool); });
-        };
-        return b;
-      });
-      var colors = ['#ff3b30', '#ffcc00', '#34c759', '#1f6feb', '#000000', '#ffffff'];
-      var swatchBtns = colors.map(function (c) {
-        var s = el('span', { class: 'swatch' + (c === drawColor ? ' on' : ''), title: c });
-        s.style.background = c;
-        s.onclick = function () {
-          drawColor = c;
-          shadow.querySelectorAll('.swatch').forEach(function (x) { x.classList.toggle('on', x.title === c); });
-        };
-        return s;
-      });
-      var undo = el('button', { class: 'tool', title: 'Undo' }); undo.textContent = '⎌';
-      undo.onclick = function () { shapes.pop(); redraw(); };
-      var clr = el('button', { class: 'btn sm', title: 'Clear annotations' }); clr.textContent = 'Clear';
-      clr.onclick = function () { shapes = []; redraw(); };
-      var recap = el('button', { class: 'btn sm', title: 'Pick a different element' }); recap.textContent = 'Re-select';
-      recap.onclick = startPicking;
-
-      var toolbar = el('div', { class: 'toolbar' }, toolBtns.concat([
-        el('span', { html: '<span style="width:1px;height:24px;background:#eaeef2;display:inline-block"></span>' })
-      ]).concat(swatchBtns).concat([undo, clr, recap]));
-
-      // fields
-      var titleIn = el('input', { class: 'txt', type: 'text', placeholder: 'e.g. Submit button is misaligned on mobile' });
-      var descIn = el('textarea', { class: 'txt', placeholder: 'Steps to reproduce, expected vs actual behaviour…' });
-      var titleLbl = el('label', { class: 'fld', text: 'Title' });
-      var descLbl = el('label', { class: 'fld', text: 'Description' });
-
-      // severity + environment (config-driven; environment auto-detected from URL)
+    // Set up persistent field state once per capture session, defaulting
+    // severity/environment from config.
+    function ensureFormState() {
+      if (formState) return;
       var cfg = getConfig();
-      var detectedEnv = detectEnvironment(cfg);
+      formState = {
+        title: '', description: '', expected: '',
+        severity: cfg.defaultSeverity,
+        environment: detectEnvironment(cfg),
+        includeSensitive: true
+      };
+    }
 
-      function buildSelect(values, selected) {
-        var sel = el('select', { class: 'txt' });
-        values.forEach(function (v) {
-          var o = el('option', { value: v, text: v });
-          if (v === selected) o.selected = true;
-          sel.appendChild(o);
-        });
-        return sel;
-      }
-      var sevSel = buildSelect(cfg.severities, cfg.defaultSeverity);
+    function renderForm() {
+      clearShadowBody();
+      state = 'form';
+      ensureFormState();
+      var cfg = getConfig();
+
+      // -- clickable screenshot thumbnail (opens the editor pop-up) --
+      thumbImg = el('img', { class: 'thumb', alt: 'screenshot', title: 'Click to annotate' });
+      refreshThumb();
+      var editHint = el('div', { class: 'thumbhint', html: '✏️ Click the screenshot to draw on it' });
+      var thumbWrap = el('div', { class: 'thumbwrap' }, [thumbImg, editHint]);
+      thumbWrap.onclick = openEditor;
+
+      // -- fields --
+      var titleIn = el('input', { class: 'txt', type: 'text', placeholder: 'e.g. Submit button is misaligned on mobile' });
+      titleIn.value = formState.title;
+      titleIn.oninput = function () { formState.title = titleIn.value; };
+
+      var descIn = el('textarea', { class: 'txt', placeholder: 'What happens / steps to reproduce…' });
+      descIn.value = formState.description;
+      descIn.oninput = function () { formState.description = descIn.value; };
+
+      var expIn = el('textarea', { class: 'txt', placeholder: 'What you expected to happen instead…' });
+      expIn.value = formState.expected;
+      expIn.oninput = function () { formState.expected = expIn.value; };
+
+      // -- severity + environment --
+      var sevSel = buildSelect(cfg.severities, formState.severity);
+      sevSel.onchange = function () { formState.severity = sevSel.value; };
       var envValues = cfg.environments.map(function (e) { return e.label; })
         .filter(function (v, i, a) { return a.indexOf(v) === i; });
-      if (envValues.indexOf(detectedEnv) < 0) envValues.unshift(detectedEnv);
-      var envSel = buildSelect(envValues, detectedEnv);
+      if (envValues.indexOf(formState.environment) < 0) envValues.unshift(formState.environment);
+      var envSel = buildSelect(envValues, formState.environment);
+      envSel.onchange = function () { formState.environment = envSel.value; };
 
       var sevCol = el('div', {}, [el('label', { class: 'fld', text: 'Severity' }), sevSel]);
       var envCol = el('div', {}, [el('label', { class: 'fld', html: 'Environment <span style="font-weight:400;color:#57606a">(from URL)</span>' }), envSel]);
       sevCol.style.flex = '1'; envCol.style.flex = '1';
       var metaRow = el('div', { class: 'row' }, [sevCol, envCol]);
 
-      function reportOpts(statusNode) {
-        return {
-          title: titleIn.value, description: descIn.value,
-          severity: sevSel.value, environment: envSel.value,
-          includeSensitive: sensChk.checked, status: statusNode
-        };
-      }
-
-      // sensitive-data toggle
+      // -- sensitive-data toggle --
       var sensChk = el('input', { type: 'checkbox' });
-      sensChk.checked = true;
+      sensChk.checked = formState.includeSensitive;
+      sensChk.onchange = function () { formState.includeSensitive = sensChk.checked; };
       var sensLbl = el('label', { class: 'chk' }, [sensChk,
         el('span', { html: 'Include <b>cookies &amp; storage</b> in the report. May contain auth tokens — leave off for shared tickets.' })]);
 
-      // actions
+      // -- actions --
       var status = el('div', { class: 'status' });
       var copyBtn = el('button', { class: 'btn primary' });
       copyBtn.innerHTML = '📋 Copy bug report to clipboard';
@@ -561,25 +559,110 @@
         else setStatus(status, 'Screenshot can\'t be exported (cross-origin content tainted the canvas).', 'err');
       };
       var dlMd = el('button', { class: 'btn sm' }); dlMd.textContent = '⬇ Markdown';
-      dlMd.onclick = function () {
-        var ctx = collectContext(reportOpts());
-        downloadText(buildMarkdown(ctx, false), 'bug-report.md');
-      };
+      dlMd.onclick = function () { downloadText(buildMarkdown(collectContext(reportOpts()), false), 'bug-report.md'); };
+      var recap = el('button', { class: 'btn sm' }); recap.textContent = 'Re-select';
+      recap.onclick = startPicking;
 
       var body = el('div', {}, [
-        preview,
-        toolbar,
-        titleLbl, titleIn,
-        descLbl, descIn,
+        thumbWrap,
+        el('label', { class: 'fld', text: 'Title' }), titleIn,
+        el('label', { class: 'fld', text: 'Description' }), descIn,
+        el('label', { class: 'fld', text: 'Expected results' }), expIn,
         metaRow,
         sensLbl,
         el('div', { class: 'divider' }),
         copyBtn,
-        el('div', { class: 'row' }, [dlPng, dlMd]),
+        el('div', { class: 'row' }, [dlPng, dlMd, recap]),
         status
       ]);
       shadow.appendChild(panelShell('Report a bug', body));
       setTimeout(function () { titleIn.focus(); }, 50);
+    }
+
+    function reportOpts(statusNode) {
+      return {
+        title: formState.title, description: formState.description,
+        expected: formState.expected,
+        severity: formState.severity, environment: formState.environment,
+        includeSensitive: formState.includeSensitive, status: statusNode
+      };
+    }
+
+    // Update the form thumbnail from the current screenshot + annotations.
+    function refreshThumb() {
+      if (!thumbImg) return;
+      var d = compositeDataUrl();
+      if (d) { thumbImg.src = d; thumbImg.alt = 'screenshot'; }
+      else { thumbImg.removeAttribute('src'); thumbImg.alt = 'Preview unavailable (cross-origin) — click to annotate anyway'; }
+    }
+
+    // -- Editor pop-up (annotation) -----------------------------------------
+    function openEditor() {
+      state = 'editing';
+      // Move the live canvases into the modal at a size that fits the viewport.
+      var maxW = Math.min(window.innerWidth - 80, 1100);
+      var maxH = window.innerHeight - 220;
+      var ratio = Math.min(maxW / baseCanvas.width, maxH / baseCanvas.height, 1);
+      var dispW = Math.round(baseCanvas.width * ratio);
+      var dispH = Math.round(baseCanvas.height * ratio);
+      [baseCanvas, annoCanvas].forEach(function (c) {
+        c.style.width = dispW + 'px';
+        c.style.height = dispH + 'px';
+      });
+      var stack = el('div', { class: 'stack' }, [baseCanvas, annoCanvas]);
+      var stage = el('div', { class: 'stage' }, [stack]);
+
+      // tools
+      var tools = [['pen', '✏️', 'Pen'], ['rect', '▭', 'Rectangle'], ['arrow', '↗', 'Arrow']];
+      var toolBtns = tools.map(function (t) {
+        var b = el('button', { class: 'tool' + (t[0] === drawTool ? ' on' : ''), title: t[2], 'data-tool': t[0] });
+        b.textContent = t[1];
+        b.onclick = function () {
+          drawTool = t[0];
+          modal.querySelectorAll('.tool[data-tool]').forEach(function (x) { x.classList.toggle('on', x.getAttribute('data-tool') === drawTool); });
+        };
+        return b;
+      });
+      var colors = ['#ff3b30', '#ffcc00', '#34c759', '#1f6feb', '#000000', '#ffffff'];
+      var swatchBtns = colors.map(function (c) {
+        var s = el('span', { class: 'swatch' + (c === drawColor ? ' on' : ''), title: c });
+        s.style.background = c;
+        s.onclick = function () {
+          drawColor = c;
+          modal.querySelectorAll('.swatch').forEach(function (x) { x.classList.toggle('on', x.title === c); });
+        };
+        return s;
+      });
+      var undo = el('button', { class: 'tool', title: 'Undo' }); undo.textContent = '⎌';
+      undo.onclick = function () { shapes.pop(); redraw(); };
+      var clr = el('button', { class: 'btn sm', title: 'Clear annotations' }); clr.textContent = 'Clear';
+      clr.onclick = function () { shapes = []; redraw(); };
+      var done = el('button', { class: 'btn primary editdone' }); done.textContent = '✓ Done';
+      done.onclick = closeEditor;
+
+      var toolbar = el('div', { class: 'edtoolbar' }, toolBtns.concat([
+        el('span', { class: 'sep' })
+      ]).concat(swatchBtns).concat([undo, clr]));
+
+      var close = el('button', { class: 'edx', title: 'Done' }); close.innerHTML = '&times;';
+      close.onclick = closeEditor;
+      var header = el('div', { class: 'edhd' }, [
+        el('b', { text: 'Annotate screenshot' }),
+        el('span', { class: 'edhint', text: 'Draw to highlight the problem' }),
+        close
+      ]);
+
+      var card = el('div', { class: 'edcard' }, [header, stage, el('div', { class: 'edfoot' }, [toolbar, done])]);
+      var modal = el('div', { class: 'modal' }, [card]);
+      modal.onclick = function (e) { if (e.target === modal) closeEditor(); };
+      shadow.appendChild(modal);
+    }
+
+    function closeEditor() {
+      var modal = shadow.querySelector('.modal');
+      if (modal) modal.remove();
+      // canvases were detached with the modal; rebuild the form with a fresh thumb
+      renderForm();
     }
 
     // -- Drawing ------------------------------------------------------------
@@ -729,6 +812,7 @@
       var ctx = {
         title: opts.title || '(no title)',
         description: opts.description || '',
+        expected: opts.expected || '',
         severity: opts.severity || '',
         environment: opts.environment || '',
         url: location.href,
@@ -790,6 +874,7 @@
       if (c.environment) badges.push('**Environment:** ' + c.environment);
       if (badges.length) { L.push(badges.join(' · ')); L.push(''); }
       if (c.description) { L.push('## Description'); L.push(c.description); L.push(''); }
+      if (c.expected) { L.push('## Expected results'); L.push(c.expected); L.push(''); }
       if (imageNote) { L.push('## Screenshot'); L.push('_Annotated screenshot is attached / embedded in this paste._'); L.push(''); }
       L.push('## Environment');
       L.push('| Field | Value |');
@@ -872,6 +957,7 @@
       if (c.environment) badges.push('<b>Environment:</b> ' + esc(c.environment));
       if (badges.length) h.push('<p>' + badges.join(' &nbsp;·&nbsp; ') + '</p>');
       if (c.description) h.push('<p>' + esc(c.description).replace(/\n/g, '<br>') + '</p>');
+      if (c.expected) { h.push('<h2>Expected results</h2><p>' + esc(c.expected).replace(/\n/g, '<br>') + '</p>'); }
       if (imgDataUrl) h.push('<p><img src="' + imgDataUrl + '" alt="annotated screenshot" style="max-width:100%"></p>');
       h.push('<h2>Environment</h2><ul>');
       if (c.environment) h.push('<li><b>Environment:</b> ' + esc(c.environment) + '</li>');
