@@ -195,11 +195,25 @@
 
   function getConfig() {
     var u = window.__bugReporterConfig || {};
+    var c = u.collect || {};
     return {
       severities: (u.severities && u.severities.length) ? u.severities : DEFAULT_CONFIG.severities,
       defaultSeverity: u.defaultSeverity || DEFAULT_CONFIG.defaultSeverity,
-      environments: (u.environments && u.environments.length) ? u.environments : DEFAULT_CONFIG.environments
+      environments: (u.environments && u.environments.length) ? u.environments : DEFAULT_CONFIG.environments,
+      // optional allowlists of what to collect; empty array/absent = collect all of that category
+      collect: {
+        cookies: c.cookies || [],
+        localStorage: c.localStorage || [],
+        sessionStorage: c.sessionStorage || [],
+        headers: c.headers || []
+      }
     };
+  }
+
+  // True if the config narrows any category to an allowlist.
+  function hasCollectAllowlist(cfg) {
+    var c = cfg.collect;
+    return !!(c.cookies.length || c.localStorage.length || c.sessionStorage.length || c.headers.length);
   }
 
   function detectEnvironment(cfg) {
@@ -212,6 +226,21 @@
     }
     return 'Unknown';
   }
+
+  // Best-effort capture of the current page's *response* headers (same-origin).
+  // Note: outgoing request headers (e.g. Authorization) are not readable by JS.
+  var capturedHeaders = null;
+  function captureHeaders() {
+    if (capturedHeaders !== null) return; // once
+    capturedHeaders = {};
+    try {
+      fetch(location.href, { method: 'GET', cache: 'no-store', credentials: 'include' })
+        .then(function (res) { res.headers.forEach(function (v, k) { capturedHeaders[k.toLowerCase()] = v; }); })
+        .catch(function () { });
+    } catch (e) { /* ignore */ }
+  }
+  // Prefetch headers on load if the config asks for any (gives them time to arrive).
+  if (getConfig().collect.headers.length) captureHeaders();
 
   // ===========================================================================
   // Widget
@@ -562,8 +591,10 @@
       var sensChk = el('input', { type: 'checkbox' });
       sensChk.checked = formState.includeSensitive;
       sensChk.onchange = function () { formState.includeSensitive = sensChk.checked; };
-      var sensLbl = el('label', { class: 'chk' }, [sensChk,
-        el('span', { html: 'Include <b>cookies &amp; storage</b> in the report. May contain auth tokens — leave off for shared tickets.' })]);
+      var sensText = hasCollectAllowlist(cfg)
+        ? 'Include the <b>configured cookies, storage &amp; headers</b> in the report. May contain secrets — leave off for shared tickets.'
+        : 'Include <b>all cookies &amp; storage</b> in the report. May contain auth tokens — leave off for shared tickets. <i>(Tip: configure an allowlist on the bookmarklet page to include only what matters.)</i>';
+      var sensLbl = el('label', { class: 'chk' }, [sensChk, el('span', { html: sensText })]);
 
       // -- actions --
       var status = el('div', { class: 'status' });
@@ -1091,16 +1122,44 @@
       return { browser: browser, os: os };
     }
 
-    function safeStorage(store) {
+    function trunc(v) { return (v && v.length > 500) ? v.slice(0, 500) + '…[truncated]' : v; }
+
+    // Collect a storage object. If `keys` is non-empty, only those keys are
+    // included (allowlist); otherwise everything is collected.
+    function collectStore(store, keys) {
       var out = {};
       try {
-        for (var i = 0; i < store.length; i++) {
-          var k = store.key(i);
-          var v = store.getItem(k);
-          out[k] = v && v.length > 500 ? v.slice(0, 500) + '…[truncated]' : v;
+        if (keys && keys.length) {
+          keys.forEach(function (k) { var v = store.getItem(k); out[k] = v === null ? '(not set)' : trunc(v); });
+        } else {
+          for (var i = 0; i < store.length; i++) { var k = store.key(i); out[k] = trunc(store.getItem(k)); }
         }
       } catch (e) { out.__error = String(e); }
       return out;
+    }
+
+    function parseCookies() {
+      var o = {};
+      (document.cookie || '').split(';').forEach(function (pair) {
+        var i = pair.indexOf('=');
+        if (i > 0) o[pair.slice(0, i).trim()] = pair.slice(i + 1).trim();
+      });
+      return o;
+    }
+    function collectCookies(keys) {
+      var all = parseCookies();
+      if (keys && keys.length) {
+        var sel = {};
+        keys.forEach(function (n) { sel[n] = (n in all) ? all[n] : '(not set)'; });
+        return sel;
+      }
+      return all;
+    }
+    function pickHeaders(names) {
+      var o = {};
+      var h = capturedHeaders || {};
+      names.forEach(function (n) { var v = h[n.toLowerCase()]; o[n] = (v == null) ? '(not captured)' : v; });
+      return o;
     }
 
     function collectContext(opts) {
@@ -1153,9 +1212,11 @@
         networkErrors: networkLog
       };
       if (opts.includeSensitive) {
-        ctx.cookies = document.cookie || '(none / httpOnly only)';
-        ctx.localStorage = safeStorage(window.localStorage);
-        ctx.sessionStorage = safeStorage(window.sessionStorage);
+        var col = getConfig().collect;
+        ctx.cookies = collectCookies(col.cookies);
+        ctx.localStorage = collectStore(window.localStorage, col.localStorage);
+        ctx.sessionStorage = collectStore(window.sessionStorage, col.sessionStorage);
+        if (col.headers.length) ctx.headers = pickHeaders(col.headers);
       }
       return ctx;
     }
@@ -1225,9 +1286,14 @@
         return e.time + '  ' + e.method + ' ' + e.url + '  → ' + e.status + ' (' + e.ms + 'ms)';
       });
 
+      if (c.headers) {
+        L.push('## Response headers');
+        L.push(fence(JSON.stringify(c.headers, null, 2), 'json'));
+        L.push('');
+      }
       if (c.cookies !== undefined) {
         L.push('## Cookies');
-        L.push(fence(c.cookies, ''));
+        L.push(fence(JSON.stringify(c.cookies, null, 2), 'json'));
         L.push('');
         L.push('## localStorage');
         L.push(fence(JSON.stringify(c.localStorage, null, 2), 'json'));
@@ -1280,10 +1346,14 @@
       htmlLog('Console errors & warnings', c.consoleErrors, function (e) { return '[' + e.level.toUpperCase() + '] ' + e.text; });
       htmlLog('Uncaught JS errors', c.jsErrors, function (e) { return e.message + (e.stack ? '\n' + e.stack : ''); });
       htmlLog('Failed network requests', c.networkErrors, function (e) { return e.method + ' ' + e.url + ' → ' + e.status; });
+      var pre = function (title, obj) {
+        h.push('<h2>' + title + '</h2><pre style="background:#f6f8fa;padding:8px;border-radius:6px;overflow:auto"><code>' + esc(JSON.stringify(obj, null, 2)) + '</code></pre>');
+      };
+      if (c.headers) pre('Response headers', c.headers);
       if (c.cookies !== undefined) {
-        h.push('<h2>Cookies</h2><pre style="background:#f6f8fa;padding:8px;border-radius:6px;overflow:auto"><code>' + esc(c.cookies) + '</code></pre>');
-        h.push('<h2>localStorage</h2><pre style="background:#f6f8fa;padding:8px;border-radius:6px;overflow:auto"><code>' + esc(JSON.stringify(c.localStorage, null, 2)) + '</code></pre>');
-        h.push('<h2>sessionStorage</h2><pre style="background:#f6f8fa;padding:8px;border-radius:6px;overflow:auto"><code>' + esc(JSON.stringify(c.sessionStorage, null, 2)) + '</code></pre>');
+        pre('Cookies', c.cookies);
+        pre('localStorage', c.localStorage);
+        pre('sessionStorage', c.sessionStorage);
       }
       h.push('<hr><p><i>Generated by Bug Reporter.</i></p></div>');
       return h.join('');

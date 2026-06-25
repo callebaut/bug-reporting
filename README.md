@@ -144,10 +144,36 @@ For **team-wide** rules instead of per-person, host a small `config.js` that set
 - Console errors & warnings (and full console log)
 - Uncaught JS errors & unhandled promise rejections
 - Failed network requests (fetch + XHR, status ≥ 400 or network error)
-- **Optional** (toggle, on by default): cookies, localStorage, sessionStorage
+- **Optional** (toggle, on by default): cookies, localStorage, sessionStorage,
+  and configured response headers
 
 > ⚠️ Cookies & storage may contain auth tokens. There's a toggle in the widget —
 > turn it off for tickets shared beyond your team.
+
+### Collecting only what matters (allowlists)
+
+By default the toggle grabs **all** cookies/storage. On the bookmarklet page
+(section *“Choose which data to collect”*) you can list the **names** that
+matter, and the widget then collects **only those** — per category:
+
+```js
+window.__bugReporterConfig = {
+  collect: {
+    cookies:        ['sessionId', 'cartId'],   // only these cookies
+    localStorage:   ['featureFlags'],          // only these keys
+    sessionStorage: [],                        // empty = collect all
+    headers:        ['x-app-version']          // response headers (see note)
+  }
+};
+```
+
+Leave a category empty to keep grabbing everything in it. A name that isn't
+present is reported as `(not set)`.
+
+**Headers caveat:** browsers can't read a page's *outgoing request* headers
+(e.g. `Authorization`) from JavaScript. Only **response** headers of the current
+page are captured — via a best-effort same-origin `fetch`, and only when you
+list header names. They appear under a *Response headers* section in the report.
 
 ## Capturing errors from page load
 

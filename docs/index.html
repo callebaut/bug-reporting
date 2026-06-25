@@ -72,13 +72,30 @@
     <p id="cfgerr" style="color:#cf222e;font-size:13px;margin:8px 0 0;"></p>
   </div>
 
-  <h2>3. Drag this to your bookmarks bar</h2>
+  <h2>3. Choose which data to collect <span class="badge">optional</span></h2>
+  <p>By default, ticking <em>“include cookies &amp; storage”</em> in the widget grabs <b>everything</b>. List the names you actually care about below (comma-separated) to collect <b>only those</b> — leave a field blank to keep grabbing all of that category.</p>
+  <div class="gen">
+    <label for="colcookies">Cookies <span style="font-weight:400;color:var(--muted)">(names)</span></label>
+    <input id="colcookies" type="text" spellcheck="false" placeholder="e.g. sessionId, cartId">
+
+    <label for="collocal" style="margin-top:14px">localStorage keys</label>
+    <input id="collocal" type="text" spellcheck="false" placeholder="e.g. featureFlags, userPrefs">
+
+    <label for="colsession" style="margin-top:14px">sessionStorage keys</label>
+    <input id="colsession" type="text" spellcheck="false" placeholder="e.g. wizardStep">
+
+    <label for="colheaders" style="margin-top:14px">Response headers <span style="font-weight:400;color:var(--muted)">(names)</span></label>
+    <input id="colheaders" type="text" spellcheck="false" placeholder="e.g. x-app-version, cache-control">
+    <p style="font-size:12px;color:var(--muted);margin:6px 0 0;">⚠️ Browsers can't read a page's <em>outgoing request</em> headers (e.g. <code>Authorization</code>). Only <b>response</b> headers of the current page are captured (via a same-origin fetch), and only when you list names here.</p>
+  </div>
+
+  <h2>4. Drag this to your bookmarks bar</h2>
   <p>Drag the button onto your browser's bookmarks bar (or right-click → bookmark the link). Clicking the bookmark on any page opens the widget.</p>
   <p><a class="bm" id="bm" href="#">🐞 Report a bug</a></p>
   <p style="font-size:13px;color:var(--muted)">Can't drag? Create a bookmark manually and paste this as the URL/location:</p>
   <pre id="bmcode"></pre>
 
-  <h2>4. Use it</h2>
+  <h2>5. Use it</h2>
   <ol>
     <li>Open the page with the bug. <b>Reproduce the bug</b> after clicking the bookmark so console &amp; network errors get captured.</li>
     <li>Click the bookmark → the widget opens bottom-right.</li>
@@ -137,6 +154,10 @@
   var defSevSel = document.getElementById('defsev');
   var envRowsEl = document.getElementById('envrows');
   var cfgErr = document.getElementById('cfgerr');
+  var colCookies = document.getElementById('colcookies');
+  var colLocal = document.getElementById('collocal');
+  var colSession = document.getElementById('colsession');
+  var colHeaders = document.getElementById('colheaders');
   // working copy of the environment rules (order matters)
   var envRules = defaultConfig.environments.map(function (e) { return { match: e.match, label: e.label }; });
   sevsIn.value = defaultConfig.severities.join(', ');
@@ -150,7 +171,8 @@
         host: hostIn.value,
         severities: sevsIn.value,
         defaultSeverity: defSevSel.value,
-        environments: envRules
+        environments: envRules,
+        collect: { cookies: colCookies.value, localStorage: colLocal.value, sessionStorage: colSession.value, headers: colHeaders.value }
       }));
       var n = document.getElementById('savednote');
       if (n) n.textContent = '✓ Saved in this browser';
@@ -167,6 +189,12 @@
     if (saved.defaultSeverity) pendingDefaultSeverity = saved.defaultSeverity;
     if (Array.isArray(saved.environments) && saved.environments.length) {
       envRules = saved.environments.map(function (e) { return { match: e.match || '', label: e.label || '' }; });
+    }
+    if (saved.collect) {
+      colCookies.value = saved.collect.cookies || '';
+      colLocal.value = saved.collect.localStorage || '';
+      colSession.value = saved.collect.sessionStorage || '';
+      colHeaders.value = saved.collect.headers || '';
     }
   })();
 
@@ -223,6 +251,8 @@
 
   // Build the config object the bookmarklet will carry. Empty keys fall back to
   // the widget's built-in defaults, so we omit them when blank.
+  function listFromInput(v) { return v.split(',').map(function (s) { return s.trim(); }).filter(Boolean); }
+
   function collectConfig() {
     var sevs = severitiesFromInput();
     var envs = envRules.filter(function (e) { return e.match.trim() && e.label.trim(); });
@@ -231,6 +261,15 @@
     var cfg = {};
     if (sevs.length) { cfg.severities = sevs; cfg.defaultSeverity = defSevSel.value; }
     if (envs.length) cfg.environments = envs;
+    var collect = {
+      cookies: listFromInput(colCookies.value),
+      localStorage: listFromInput(colLocal.value),
+      sessionStorage: listFromInput(colSession.value),
+      headers: listFromInput(colHeaders.value)
+    };
+    if (collect.cookies.length || collect.localStorage.length || collect.sessionStorage.length || collect.headers.length) {
+      cfg.collect = collect;
+    }
     return Object.keys(cfg).length ? cfg : null;
   }
 
@@ -256,6 +295,7 @@
   hostIn.addEventListener('input', refresh);
   sevsIn.addEventListener('input', refresh);
   defSevSel.addEventListener('change', refresh);
+  [colCookies, colLocal, colSession, colHeaders].forEach(function (i) { i.addEventListener('input', refresh); });
 
   document.getElementById('resetcfg').addEventListener('click', function () {
     try { localStorage.removeItem(STORE_KEY); } catch (e) { }
@@ -264,6 +304,7 @@
     envRules = defaultConfig.environments.map(function (e) { return { match: e.match, label: e.label }; });
     defSevSel.value = '';
     pendingDefaultSeverity = defaultConfig.defaultSeverity;
+    colCookies.value = colLocal.value = colSession.value = colHeaders.value = '';
     renderEnvRows();
     refresh();
   });
