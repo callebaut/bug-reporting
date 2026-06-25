@@ -587,14 +587,15 @@
       sevCol.style.flex = '1'; envCol.style.flex = '1';
       var metaRow = el('div', { class: 'row' }, [sevCol, envCol]);
 
-      // -- sensitive-data toggle --
-      var sensChk = el('input', { type: 'checkbox' });
-      sensChk.checked = formState.includeSensitive;
-      sensChk.onchange = function () { formState.includeSensitive = sensChk.checked; };
-      var sensText = hasCollectAllowlist(cfg)
-        ? 'Include the <b>configured cookies, storage &amp; headers</b> in the report. May contain secrets — leave off for shared tickets.'
-        : 'Include cookies / storage / headers — <b>none are configured</b>, so nothing will be added. <i>Configure which to collect on the bookmarklet page.</i>';
-      var sensLbl = el('label', { class: 'chk' }, [sensChk, el('span', { html: sensText })]);
+      // -- sensitive-data toggle (only shown when something is configured to collect) --
+      var sensLbl = null;
+      if (hasCollectAllowlist(cfg)) {
+        var sensChk = el('input', { type: 'checkbox' });
+        sensChk.checked = formState.includeSensitive;
+        sensChk.onchange = function () { formState.includeSensitive = sensChk.checked; };
+        sensLbl = el('label', { class: 'chk' }, [sensChk,
+          el('span', { html: 'Include the <b>configured cookies, storage &amp; headers</b> in the report. May contain secrets — leave off for shared tickets.' })]);
+      }
 
       // -- actions --
       var status = el('div', { class: 'status' });
@@ -618,12 +619,12 @@
         el('label', { class: 'fld', text: 'Description' }), descIn,
         el('label', { class: 'fld', text: 'Expected results' }), expIn,
         metaRow,
-        sensLbl,
+        sensLbl,                                  // null when nothing is configured
         el('div', { class: 'divider' }),
         copyBtn,
         el('div', { class: 'row' }, [dlPng, dlMd, recap]),
         status
-      ]);
+      ].filter(Boolean));
       shadow.appendChild(panelShell('Report a bug', body));
       setTimeout(function () { titleIn.focus(); }, 50);
     }
