@@ -161,15 +161,15 @@ window.__bugReporterConfig = {
   collect: {
     cookies:        ['sessionId', 'cartId'],   // only these cookies
     localStorage:   ['featureFlags'],          // only these keys
-    sessionStorage: [],                        // empty = collect all
+    sessionStorage: [],                        // empty = collect nothing
     headers:        ['x-app-version']          // response headers (see note)
   }
 };
 ```
 
-Defaults when a category is left empty: **localStorage / sessionStorage collect
-nothing**, **cookies collect everything**, and **headers collect nothing**. A
-listed name that isn't present is reported as `(not set)`.
+Everything sensitive is **opt-in**: a blank category collects **nothing**. So
+cookies, localStorage, sessionStorage and headers are only included when you
+list names. A listed name that isn't present is reported as `(not set)`.
 
 **Headers caveat:** browsers can't read a page's *outgoing request* headers
 (e.g. `Authorization`) from JavaScript. Only **response** headers of the current
