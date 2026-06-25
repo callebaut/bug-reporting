@@ -167,8 +167,9 @@ window.__bugReporterConfig = {
 };
 ```
 
-Leave a category empty to keep grabbing everything in it. A name that isn't
-present is reported as `(not set)`.
+Defaults when a category is left empty: **localStorage / sessionStorage collect
+nothing**, **cookies collect everything**, and **headers collect nothing**. A
+listed name that isn't present is reported as `(not set)`.
 
 **Headers caveat:** browsers can't read a page's *outgoing request* headers
 (e.g. `Authorization`) from JavaScript. Only **response** headers of the current

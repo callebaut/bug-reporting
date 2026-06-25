@@ -73,7 +73,12 @@
   </div>
 
   <h2>3. Choose which data to collect <span class="badge">optional</span></h2>
-  <p>By default, ticking <em>“include cookies &amp; storage”</em> in the widget grabs <b>everything</b>. List the names you actually care about below (comma-separated) to collect <b>only those</b> — leave a field blank to keep grabbing all of that category.</p>
+  <p>List the names you care about below (comma-separated) to collect <b>only those</b>. Defaults when a field is left blank:</p>
+  <ul style="margin:6px 0 12px;font-size:14px;color:var(--ink);">
+    <li><b>localStorage / sessionStorage</b> → <b>nothing</b> is collected (these are usually full of noise).</li>
+    <li><b>Cookies</b> → <b>all</b> cookies are collected.</li>
+    <li><b>Response headers</b> → none (only captured when you list names).</li>
+  </ul>
   <div class="gen">
     <label for="colcookies">Cookies <span style="font-weight:400;color:var(--muted)">(names)</span></label>
     <input id="colcookies" type="text" spellcheck="false" placeholder="e.g. sessionId, cartId">
